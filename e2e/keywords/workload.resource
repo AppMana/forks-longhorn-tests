@@ -41,8 +41,9 @@ Delete pod ${pod_id} to detach volume ${volume_id}
     delete_pod    ${pod_name}
 
 Keep writing data to pod of ${workload_kind} ${workload_id}
+    [Arguments]    ${size_in_mb}=256
     ${workload_name} =   generate_name_with_suffix    ${workload_kind}    ${workload_id}
-    keep_writing_workload_pod_data    ${workload_name}
+    keep_writing_workload_pod_data    ${workload_name}    ${size_in_mb}
 
 Stop writing data to pod of ${workload_kind} ${workload_id}
     ${workload_name} =   generate_name_with_suffix    ${workload_kind}    ${workload_id}

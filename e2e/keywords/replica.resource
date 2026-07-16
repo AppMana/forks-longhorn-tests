@@ -12,6 +12,12 @@ Volume ${volume_id} replica ${setting_name} should be ${setting_value}
     ${volume_name} =    generate_name_with_suffix    volume    ${volume_id}
     validate_replica_setting    ${volume_name}    ${setting_name}    ${setting_value}
 
+Volume of ${workload_kind} ${workload_id} replicas should be on nodes
+    [Arguments]    @{expected_nodes}
+    ${workload_name} =    generate_name_with_suffix    ${workload_kind}    ${workload_id}
+    ${volume_name} =    get_workload_volume_name    ${workload_name}
+    wait_for_volume_replica_nodes    ${volume_name}    @{expected_nodes}
+
 There should be running replicas on node ${node_id} disk ${disk_name}
     ${node_name} =    get_node_by_index    ${node_id}
     ${disk_uuid} =    get_disk_uuid    ${node_name}    ${disk_name}

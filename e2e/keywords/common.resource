@@ -16,6 +16,7 @@ Library             ../libs/keywords/persistentvolumeclaim_keywords.py
 Library             ../libs/keywords/network_keywords.py
 Library             ../libs/keywords/storageclass_keywords.py
 Library             ../libs/keywords/node_keywords.py
+Library             ../libs/keywords/topology_keywords.py
 Library             ../libs/keywords/orphan_keywords.py
 Library             ../libs/keywords/backing_image_keywords.py
 Library             ../libs/keywords/backup_backing_image_keywords.py
@@ -109,6 +110,7 @@ Enable v2 data engine and add block disks
 
 Init worker node variables
     ${worker_nodes}=    get_worker_nodes
+    ${worker_nodes}=    select_topology_nodes    ${worker_nodes}
     Run Keyword And Ignore Error    Set Test Variable    ${NODE_0}    ${worker_nodes[0]}
     Run Keyword And Ignore Error    Set Test Variable    ${NODE_1}    ${worker_nodes[1]}
     Run Keyword And Ignore Error    Set Test Variable    ${NODE_2}    ${worker_nodes[2]}

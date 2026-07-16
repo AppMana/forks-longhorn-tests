@@ -1,0 +1,32 @@
+profiles:
+  linux:
+    node_os: [linux, linux, linux]
+    engine_os: linux
+    replica_os: [linux, linux]
+
+  windows:
+    node_os: [windows, windows, windows]
+    nodes:
+      - {os: windows, filesystem: ntfs}
+      - {os: windows, filesystem: ntfs}
+      - {os: windows, filesystem: refs}
+    engine_os: windows
+    replica_os: [windows, windows]
+
+  windows-mixed-replicas:
+    node_os: [windows, windows, linux]
+    nodes:
+      - {os: windows, filesystem: ntfs}
+      - {os: windows, filesystem: refs}
+      - {os: linux, filesystem: ext4}
+    engine_os: windows
+    replica_os: [windows, linux]
+
+  linux-mixed-replicas:
+    node_os: [linux, linux, windows]
+    nodes:
+      - {os: linux, filesystem: ext4}
+      - {os: linux, filesystem: ext4}
+      - {os: windows, filesystem: ntfs}
+    engine_os: linux
+    replica_os: [linux, windows]

@@ -2,6 +2,7 @@ IMAGE_BUSYBOX = 'busybox:1.34.0'
 IMAGE_LITMUX = 'litmuschaos/go-runner:3.27.0'
 IMAGE_UBUNTU = 'ubuntu:16.04'
 IMAGE_NETWORK_TEST = 'nicolaka/netshoot:v0.15'
+IMAGE_WINDOWS_SERVER = 'mcr.microsoft.com/windows/servercore:ltsc2022'
 
 WAIT_FOR_POD_STABLE_MAX_RETRY = 180
 WAIT_FOR_POD_KEPT_IN_STATE_TIME = 30

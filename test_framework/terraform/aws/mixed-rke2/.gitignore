@@ -1,0 +1,5 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+rke2.yaml
+node-inventory.json

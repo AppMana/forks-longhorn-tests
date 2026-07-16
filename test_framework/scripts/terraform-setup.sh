@@ -14,6 +14,9 @@ terraform_setup(){
 
   if [[ ${LONGHORN_TEST_CLOUDPROVIDER} == "aws" ]]; then
     terraform -chdir=${TF_VAR_tf_workspace}/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -raw controlplane_public_ip > /tmp/controlplane_public_ip
+    if terraform -chdir=${TF_VAR_tf_workspace}/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -json | jq -e 'has("node_inventory")' >/dev/null; then
+      terraform -chdir=${TF_VAR_tf_workspace}/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -raw node_inventory > /tmp/node_inventory.json
+    fi
   elif [[ ${LONGHORN_TEST_CLOUDPROVIDER} == "harvester" ]]; then
     terraform -chdir=${TF_VAR_tf_workspace}/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -raw kube_config > ${TF_VAR_tf_workspace}/kube_config.yaml
     terraform -chdir=${TF_VAR_tf_workspace}/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -raw cluster_id > /tmp/cluster_id

@@ -23,6 +23,9 @@ if [[ ${LONGHORN_TEST_CLOUDPROVIDER} == "aws" ]]; then
   if [[ "${TF_VAR_k8s_distro_name}" == "k3s" || "${TF_VAR_k8s_distro_name}" == "rke2" ]]; then
     terraform -chdir=test_framework/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -raw instance_mapping | jq 'map({(.name | split(".")[0]): .id}) | add' | jq -s add > /tmp/instance_mapping
     terraform -chdir=test_framework/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -raw public_ip_mapping | jq 'map({(.name | split(".")[0]): .ip}) | add' | jq -s add > /tmp/public_ip_mapping
+    if terraform -chdir=test_framework/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -json | jq -e 'has("node_inventory")' >/dev/null; then
+      terraform -chdir=test_framework/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -raw node_inventory > /tmp/node_inventory.json
+    fi
   fi
   terraform -chdir=test_framework/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} output -raw controlplane_public_ip > /tmp/controlplane_public_ip
 elif [[ ${LONGHORN_TEST_CLOUDPROVIDER} == "harvester" ]]; then

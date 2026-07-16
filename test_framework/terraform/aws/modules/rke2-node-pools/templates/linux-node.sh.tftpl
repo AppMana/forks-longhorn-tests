@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+until apt-get update; do sleep 5; done
+until apt-get install -y curl jq open-iscsi nfs-common cryptsetup dmsetup; do sleep 5; done
+systemctl enable --now iscsid
+
+%{ if has_data_disk ~}
+DATA_DISK=""
+for _ in $(seq 1 60); do
+  while read -r candidate; do
+    if ! lsblk -nrpo MOUNTPOINT "$candidate" | grep -qx /; then
+      DATA_DISK="$candidate"
+      break
+    fi
+  done < <(lsblk -dnpo NAME,TYPE | awk '$2 == "disk" {print $1}')
+  [ -n "$DATA_DISK" ] && break
+  sleep 2
+done
+test -n "$DATA_DISK"
+
+if ! blkid "$DATA_DISK"; then
+  %{ if filesystem == "xfs" ~}
+  mkfs.xfs -f -L LONGHORN "$DATA_DISK"
+  %{ else ~}
+  mkfs.ext4 -F -L LONGHORN "$DATA_DISK"
+  %{ endif ~}
+fi
+mkdir -p /var/lib/longhorn
+DATA_UUID=$(blkid -s UUID -o value "$DATA_DISK")
+grep -q "UUID=$DATA_UUID " /etc/fstab || echo "UUID=$DATA_UUID /var/lib/longhorn ${filesystem} defaults,nofail 0 2" >> /etc/fstab
+mount /var/lib/longhorn
+%{ endif ~}
+
+hostnamectl set-hostname "${node_name}"
+mkdir -p /etc/rancher/rke2
+cat > /etc/rancher/rke2/config.yaml <<'RKE2_CONFIG'
+token: "${cluster_token}"
+node-name: "${node_name}"
+%{ if role == "server" ~}
+cni: "${cni}"
+tls-san:
+  - "${server_private_ip}"
+%{ else ~}
+server: "${server_url}"
+%{ endif ~}
+node-label:
+%{ for label in labels ~}
+  - "${label}"
+%{ endfor ~}
+%{ if length(taints) > 0 ~}
+node-taint:
+%{ for taint in taints ~}
+  - "${taint}"
+%{ endfor ~}
+%{ endif ~}
+RKE2_CONFIG
+
+until curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="${role}" INSTALL_RKE2_VERSION="${rke2_version}" sh -; do
+  sleep 10
+done
+systemctl enable --now "rke2-${role}.service"

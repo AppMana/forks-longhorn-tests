@@ -1,4 +1,7 @@
 from replica import Replica
+from utility.utility import get_retry_count_and_interval
+from utility.utility import logging
+import time
 
 
 class replica_keywords:
@@ -23,3 +26,19 @@ class replica_keywords:
 
     def wait_for_replica_failed(self, volume_name, node_name):
         return self.replica.wait_for_replica_failed(volume_name, node_name)
+
+    def wait_for_volume_replica_nodes(self, volume_name, *expected_nodes):
+        retry_count, retry_interval = get_retry_count_and_interval()
+        expected = sorted(expected_nodes)
+        for attempt in range(retry_count):
+            replicas = self.replica.get(volume_name, None)
+            actual = sorted(replica.get("spec", {}).get("nodeID", "") for replica in replicas)
+            if actual == expected:
+                return
+            logging(
+                f"Waiting for volume {volume_name} replica nodes {expected}; got {actual} ({attempt})"
+            )
+            time.sleep(retry_interval)
+        raise AssertionError(
+            f"volume {volume_name} replica nodes are {actual}, expected {expected}"
+        )

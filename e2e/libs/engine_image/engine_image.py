@@ -1,3 +1,4 @@
+import os
 import time
 
 from utility.utility import get_longhorn_client
@@ -38,6 +39,34 @@ class EngineImage():
         compatible_engine_image_name = \
             f"{self.UPGRADE_TEST_IMAGE_PREFIX}.{cli_v}-{cli_minv}.{ctl_v}-{ctl_minv}.{data_v}-{data_minv}"
         image = self.create_engine_image(compatible_engine_image_name)
+        return image.image
+
+    def deploy_compatible_windows_engine_image(self):
+        image_name = os.environ.get("LONGHORN_WINDOWS_COMPATIBLE_ENGINE_IMAGE", "")
+        assert image_name, (
+            "LONGHORN_WINDOWS_COMPATIBLE_ENGINE_IMAGE must name a second "
+            "coordinated Linux/Windows engine image for the live-upgrade test"
+        )
+        default_image = self.get_default_engine_image().image
+        assert image_name != default_image, (
+            "LONGHORN_WINDOWS_COMPATIBLE_ENGINE_IMAGE must differ from the "
+            f"default engine image {default_image}"
+        )
+        image = self.create_engine_image(image_name)
+        for attempt in range(self.retry_count):
+            image = get_longhorn_client().by_id_engine_image(image.name)
+            deployments = image.nodeDeploymentMap or {}
+            if deployments and all(deployments.values()):
+                break
+            logging(
+                f"Waiting for Windows-capable engine image {image_name} on all "
+                f"test nodes ... ({attempt}): {deployments}"
+            )
+            time.sleep(self.retry_interval)
+        assert deployments and all(deployments.values()), (
+            f"Engine image {image_name} did not deploy its platform variant on "
+            f"every test node: {deployments}"
+        )
         return image.image
 
     def create_engine_image(self, image_name):

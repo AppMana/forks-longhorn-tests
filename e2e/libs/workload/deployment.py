@@ -1,5 +1,6 @@
 import time
 import yaml
+import os
 
 from kubernetes import client
 from kubernetes.client.rest import ApiException
@@ -11,10 +12,11 @@ from utility.utility import get_retry_count_and_interval
 from utility.utility import logging
 
 from persistentvolumeclaim import PersistentVolumeClaim
+from workload.constant import IMAGE_WINDOWS_SERVER
 
 
-def create_deployment(name, claim_name, replicaset=1, enable_pvc_io_and_liveness_probe=False, block_volume=False, args=None, node_selector=None):
-    filepath = f"./templates/workload/deployment.yaml"
+def create_deployment(name, claim_name, replicaset=1, enable_pvc_io_and_liveness_probe=False, block_volume=False, args=None, node_selector=None, operating_system="linux"):
+    filepath = "./templates/workload/deployment.yaml"
     with open(filepath, 'r') as f:
         namespace = 'default'
         manifest_dict = yaml.safe_load(f)
@@ -31,11 +33,28 @@ def create_deployment(name, claim_name, replicaset=1, enable_pvc_io_and_liveness
         # correct claim name
         manifest_dict['spec']['template']['spec']['volumes'][0]['persistentVolumeClaim']['claimName'] = claim_name
 
+        operating_system = operating_system.lower()
+        if operating_system not in ("linux", "windows"):
+            raise ValueError(f"unsupported workload operating system {operating_system!r}")
+        node_selector = dict(node_selector or {})
+        node_selector.setdefault("kubernetes.io/os", operating_system)
+
         # set nodeSelector if provided
         if node_selector:
             manifest_dict['spec']['template']['spec']['nodeSelector'] = node_selector
 
+        if operating_system == "windows":
+            pod_spec = manifest_dict['spec']['template']['spec']
+            pod_spec.pop('securityContext', None)
+            container = pod_spec['containers'][0]
+            container['image'] = os.environ.get('WINDOWS_WORKLOAD_IMAGE', IMAGE_WINDOWS_SERVER)
+            container['command'] = ['powershell.exe', '-NoLogo', '-NonInteractive', '-Command']
+            container['args'] = ['while ($true) { Get-Date; Start-Sleep -Seconds 5 }']
+            container['volumeMounts'][0]['mountPath'] = r'C:\data'
+
         if block_volume:
+            if operating_system == "windows":
+                raise ValueError("Windows raw block workloads are not supported")
             # remove volumeMounts for block volume
             pvc_volume_name = manifest_dict['spec']['template']['spec']['volumes'][0]['name']
             container = manifest_dict['spec']['template']['spec']['containers'][0]
@@ -53,7 +72,16 @@ def create_deployment(name, claim_name, replicaset=1, enable_pvc_io_and_liveness
             }
             manifest_dict['spec']['template']['spec']['containers'][0] = container
 
-        if enable_pvc_io_and_liveness_probe:
+        if enable_pvc_io_and_liveness_probe and operating_system == "windows":
+            container = manifest_dict['spec']['template']['spec']['containers'][0]
+            container['args'] = [r"while ($true) { Get-Date | Add-Content C:\data\date.log; Start-Sleep -Seconds 1 }"]
+            container['livenessProbe'] = {
+                'exec': {'command': ['powershell.exe', '-NoLogo', '-NonInteractive', '-Command', r"Get-Content C:\data\date.log -Tail 1 | Out-Null"]},
+                'initialDelaySeconds': 5,
+                'periodSeconds': 5,
+                'failureThreshold': 3,
+            }
+        elif enable_pvc_io_and_liveness_probe:
             container = manifest_dict['spec']['template']['spec']['containers'][0]
             container['command'] = ["/bin/sh", "-c"]
             container['args'] = [

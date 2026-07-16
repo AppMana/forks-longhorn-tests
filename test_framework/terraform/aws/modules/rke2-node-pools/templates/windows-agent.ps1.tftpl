@@ -1,0 +1,118 @@
+<powershell>
+$ErrorActionPreference = 'Stop'
+$bootstrapRoot = 'C:\LonghornTest'
+$bootstrapPath = Join-Path $bootstrapRoot 'bootstrap.ps1'
+New-Item -ItemType Directory -Path $bootstrapRoot -Force | Out-Null
+
+@'
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+function Invoke-WithRetry {
+    param([scriptblock]$Operation, [int]$Attempts = 30)
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try { return & $Operation } catch {
+            if ($attempt -eq $Attempts) { throw }
+            Start-Sleep -Seconds 10
+        }
+    }
+}
+
+$feature = Get-WindowsFeature -Name Containers
+if (-not $feature.Installed) {
+    $result = Install-WindowsFeature -Name Containers -IncludeAllSubFeature
+    if ($result.RestartNeeded -eq 'Yes') {
+        Restart-Computer -Force
+        exit 0
+    }
+}
+
+Set-Service -Name MSiSCSI -StartupType Automatic
+Start-Service -Name MSiSCSI
+
+%{ if has_data_disk ~}
+$dataMarker = 'C:\LonghornTest\data-ready'
+if (-not (Test-Path $dataMarker)) {
+    $disk = $null
+    for ($attempt = 1; $attempt -le 60 -and $null -eq $disk; $attempt++) {
+        $disk = Get-Disk | Where-Object { -not $_.IsBoot -and -not $_.IsSystem -and $_.PartitionStyle -eq 'RAW' } | Select-Object -First 1
+        if ($null -eq $disk) { Start-Sleep -Seconds 2 }
+    }
+    if ($null -eq $disk) { throw 'Longhorn data disk did not appear' }
+
+    $partition = $disk | Initialize-Disk -PartitionStyle GPT -PassThru | New-Partition -UseMaximumSize -AssignDriveLetter
+    $partition | Format-Volume -FileSystem '${filesystem}' -NewFileSystemLabel 'LONGHORN' -Confirm:$false -Force | Out-Null
+    $mountPath = 'C:\var\lib\longhorn\'
+    New-Item -ItemType Directory -Path $mountPath -Force | Out-Null
+    $drivePath = "$($partition.DriveLetter):\"
+    Remove-PartitionAccessPath -DiskNumber $partition.DiskNumber -PartitionNumber $partition.PartitionNumber -AccessPath $drivePath
+    Add-PartitionAccessPath -DiskNumber $partition.DiskNumber -PartitionNumber $partition.PartitionNumber -AccessPath $mountPath
+    New-Item -ItemType File -Path $dataMarker -Force | Out-Null
+}
+%{ endif ~}
+
+%{ if csi_proxy_binary_url != "" ~}
+$csiProxyDirectory = 'C:\etc\kubernetes\node\bin'
+$csiProxyPath = Join-Path $csiProxyDirectory 'csi-proxy.exe'
+New-Item -ItemType Directory -Path $csiProxyDirectory -Force | Out-Null
+Invoke-WithRetry { Invoke-WebRequest -UseBasicParsing -Uri '${csi_proxy_binary_url}' -OutFile $csiProxyPath }
+%{ if csi_proxy_sha256 != "" ~}
+$actualHash = (Get-FileHash -Algorithm SHA256 -Path $csiProxyPath).Hash.ToLowerInvariant()
+if ($actualHash -ne '${csi_proxy_sha256}') { throw "csi-proxy SHA-256 mismatch: $actualHash" }
+%{ endif ~}
+& sc.exe query csiproxy | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    $flags = '-windows-service -kubelet-path=C:\var\lib\kubelet -log_file=C:\etc\kubernetes\logs\csi-proxy.log -logtostderr=false'
+    New-Item -ItemType Directory -Path 'C:\etc\kubernetes\logs' -Force | Out-Null
+    & sc.exe create csiproxy start= auto binPath= "`"$csiProxyPath`" $flags"
+    & sc.exe failure csiproxy reset= 0 actions= restart/10000
+}
+Start-Service -Name csiproxy
+%{ endif ~}
+
+$configDirectory = 'C:\etc\rancher\rke2'
+New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
+@"
+server: "${server_url}"
+token: "${cluster_token}"
+node-name: "${node_name}"
+node-label:
+%{ for label in labels ~}
+  - "${label}"
+%{ endfor ~}
+%{ if length(taints) > 0 ~}
+node-taint:
+%{ for taint in taints ~}
+  - "${taint}"
+%{ endfor ~}
+%{ endif ~}
+"@ | Set-Content -Path (Join-Path $configDirectory 'config.yaml') -Encoding ascii
+
+$machinePath = [Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::Machine)
+foreach ($pathEntry in @('C:\var\lib\rancher\rke2\bin', 'C:\usr\local\bin')) {
+    if ($machinePath -notlike "*$pathEntry*") { $machinePath += ";$pathEntry" }
+}
+[Environment]::SetEnvironmentVariable('Path', $machinePath, [EnvironmentVariableTarget]::Machine)
+$env:Path = $machinePath
+
+$rke2Path = 'C:\usr\local\bin\rke2.exe'
+if (-not (Test-Path $rke2Path)) {
+    $installer = 'C:\LonghornTest\install-rke2.ps1'
+    Invoke-WithRetry { Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/rancher/rke2/master/install.ps1' -OutFile $installer }
+    & $installer -Method Tar -Type Agent -Version '${rke2_version}'
+}
+
+if (-not (Get-Service -Name rke2 -ErrorAction SilentlyContinue)) {
+    & $rke2Path agent service --add
+}
+Set-Service -Name rke2 -StartupType Automatic
+Start-Service -Name rke2
+Unregister-ScheduledTask -TaskName LonghornTestBootstrap -Confirm:$false -ErrorAction SilentlyContinue
+'@ | Set-Content -Path $bootstrapPath -Encoding utf8
+
+$action = New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$bootstrapPath`""
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 20 -RestartInterval (New-TimeSpan -Minutes 2) -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+Register-ScheduledTask -TaskName LonghornTestBootstrap -Action $action -Trigger $trigger -Settings $settings -User SYSTEM -RunLevel Highest -Force | Out-Null
+& $bootstrapPath
+</powershell>

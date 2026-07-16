@@ -1,6 +1,7 @@
 import time
 import asyncio
 import json
+import base64
 
 from kubernetes import client
 from kubernetes.stream import stream
@@ -16,6 +17,28 @@ from workload.constant import CNI_NETWORK_STATUS_ANNOTATION
 from utility.constant import BLOCK_PVC_VOLUME_DEVICE_PATH
 from workload.pod import is_pod_terminated_by_kubelet
 from workload.pod import wait_for_pod_status
+
+
+def _pod_is_windows(pod_name, namespace="default"):
+    api = client.CoreV1Api()
+    pod = api.read_namespaced_pod(pod_name, namespace)
+    node = api.read_node(pod.spec.node_name)
+    operating_system = (
+        node.metadata.labels.get("kubernetes.io/os")
+        or node.status.node_info.operating_system
+        or "linux"
+    )
+    return operating_system.lower() == "windows"
+
+
+def _data_path(is_windows, data_directory, file_name):
+    directory = data_directory or (r"C:\data" if is_windows else "/data")
+    separator = "\\" if is_windows else "/"
+    return directory.rstrip("/\\") + separator + file_name
+
+
+def _powershell(command):
+    return ['powershell.exe', '-NoLogo', '-NonInteractive', '-Command', command]
 
 
 def get_workload_pod_names(workload_name, namespace="default"):
@@ -141,7 +164,7 @@ def mount_block_device_in_workload_pod(pod_name, mount_point):
 
 
 def write_pod_random_data(pod_name, size_in_mb, file_name,
-                          data_directory="/data", ):
+                          data_directory=None):
 
     wait_for_pod_status(pod_name, "Running")
 
@@ -150,15 +173,27 @@ def write_pod_random_data(pod_name, size_in_mb, file_name,
     for i in range(retry_count):
         logging(f"Writing random data to pod {pod_name} ... ({i})")
         try:
-            data_path = f"{data_directory}/{file_name}"
+            is_windows = _pod_is_windows(pod_name)
+            data_path = _data_path(is_windows, data_directory, file_name)
             api = client.CoreV1Api()
-            write_data_cmd = [
-                '/bin/sh',
-                '-c',
-                f"dd if=/dev/urandom of={data_path} bs=1M count={size_in_mb} status=none;\
-                sync {data_path} 2>/dev/null;\
-                md5sum {data_path} | awk '{{print $1}}' | tr -d ' \n'"
-            ]
+            if is_windows:
+                command = (
+                    f"$path='{data_path}'; $count={int(size_in_mb)}; "
+                    "$rng=[Security.Cryptography.RandomNumberGenerator]::Create(); "
+                    "$buffer=New-Object byte[] 1048576; "
+                    "$stream=[IO.File]::Open($path,[IO.FileMode]::Create,[IO.FileAccess]::Write,[IO.FileShare]::Read); "
+                    "try { for($i=0;$i -lt $count;$i++){ $rng.GetBytes($buffer); $stream.Write($buffer,0,$buffer.Length) }; $stream.Flush($true) } "
+                    "finally { $stream.Dispose(); $rng.Dispose() }; "
+                    "(Get-FileHash -Algorithm MD5 $path).Hash.ToLowerInvariant()"
+                )
+                write_data_cmd = _powershell(command)
+            else:
+                write_data_cmd = [
+                    '/bin/sh', '-c',
+                    f"dd if=/dev/urandom of={data_path} bs=1M count={size_in_mb} status=none;"
+                    f"sync {data_path} 2>/dev/null;"
+                    f"md5sum {data_path} | awk '{{print $1}}' | tr -d ' \n'"
+                ]
             resp = stream(
                 api.connect_get_namespaced_pod_exec, pod_name, 'default',
                 command=write_data_cmd, stderr=True, stdin=False, stdout=True,
@@ -206,7 +241,7 @@ def write_pod_large_data(pod_name, size_in_gb, file_name,
             time.sleep(retry_interval)
 
 
-def keep_writing_pod_data(pod_name, size_in_mb=256, path="/data/overwritten-data"):
+def keep_writing_pod_data(pod_name, size_in_mb=256, path=None):
 
     wait_for_pod_status(pod_name, "Running")
 
@@ -215,11 +250,29 @@ def keep_writing_pod_data(pod_name, size_in_mb=256, path="/data/overwritten-data
     for _ in range(retry_count):
         try:
             api = client.CoreV1Api()
-            write_cmd = [
-                '/bin/sh',
-                '-c',
-                f"while true; do dd if=/dev/urandom of={path} bs=1M count={size_in_mb} status=none; done > /dev/null 2> /dev/null &"
-            ]
+            is_windows = _pod_is_windows(pod_name)
+            path = path or (r"C:\data\overwritten-data" if is_windows else "/data/overwritten-data")
+            if is_windows:
+                script = (
+                    f"$path='{path}'; $buffer=New-Object byte[] 1048576; "
+                    "$rng=[Security.Cryptography.RandomNumberGenerator]::Create(); "
+                    r"$stop='C:\data\.longhorn-writer.stop'; $journal='C:\data\.longhorn-writer.journal'; $failure='C:\data\.longhorn-writer.error'; "
+                    "try { while(!(Test-Path $stop)){ $stream=[IO.File]::Open($path,[IO.FileMode]::Create,[IO.FileAccess]::Write,[IO.FileShare]::Read); "
+                    f"try {{ for($i=0;$i -lt {int(size_in_mb)};$i++){{ $rng.GetBytes($buffer); $stream.Write($buffer,0,$buffer.Length) }}; $stream.Flush($true) }} "
+                    "finally { $stream.Dispose() }; [DateTime]::UtcNow.Ticks | Add-Content $journal } } "
+                    "catch { $_ | Out-String | Set-Content $failure; exit 1 } finally { $rng.Dispose() }"
+                )
+                encoded = base64.b64encode(script.encode('utf-16le')).decode('ascii')
+                write_cmd = _powershell(
+                    r"Remove-Item C:\data\.longhorn-writer.* -Force -ErrorAction SilentlyContinue; "
+                    f"$p=Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoLogo','-NonInteractive','-EncodedCommand','{encoded}'; "
+                    r"$p.Id | Set-Content C:\data\.longhorn-writer.pid"
+                )
+            else:
+                write_cmd = [
+                    '/bin/sh', '-c',
+                    f"while true; do dd if=/dev/urandom of={path} bs=1M count={size_in_mb} status=none; done > /dev/null 2> /dev/null &"
+                ]
 
             logging(f"Creating process to keep writing data to pod {pod_name}")
             res = stream(
@@ -233,7 +286,7 @@ def keep_writing_pod_data(pod_name, size_in_mb=256, path="/data/overwritten-data
             time.sleep(retry_interval)
 
 
-def stop_writing_pod_data(pod_name, path="/data/overwritten-data"):
+def stop_writing_pod_data(pod_name, path=None):
 
     wait_for_pod_status(pod_name, "Running")
 
@@ -242,11 +295,26 @@ def stop_writing_pod_data(pod_name, path="/data/overwritten-data"):
     for _ in range(retry_count):
         try:
             api = client.CoreV1Api()
-            stop_cmd = [
-                '/bin/sh',
-                '-c',
-                f"pkill -f 'dd if=/dev/urandom of={path}'"
-            ]
+            is_windows = _pod_is_windows(pod_name)
+            path = path or (r"C:\data\overwritten-data" if is_windows else "/data/overwritten-data")
+            if is_windows:
+                stop_cmd = _powershell(
+                    r"$pidFile='C:\data\.longhorn-writer.pid'; $stop='C:\data\.longhorn-writer.stop'; "
+                    r"$journal='C:\data\.longhorn-writer.journal'; $failure='C:\data\.longhorn-writer.error'; "
+                    "if(!(Test-Path $pidFile)){ throw 'continuous writer PID is missing' }; "
+                    "$writerPid=[int](Get-Content $pidFile); New-Item -ItemType File -Force $stop | Out-Null; "
+                    "$process=Get-Process -Id $writerPid -ErrorAction SilentlyContinue; "
+                    "if($process){ $process.WaitForExit(60000) }; $process=Get-Process -Id $writerPid -ErrorAction SilentlyContinue; "
+                    "if($process){ Stop-Process -Id $writerPid -Force; throw 'continuous writer did not stop cleanly' }; "
+                    "if(Test-Path $failure){ throw (Get-Content $failure -Raw) }; "
+                    "if(!(Test-Path $journal)){ throw 'continuous writer produced no durable samples' }; "
+                    "$samples=@(Get-Content $journal | ForEach-Object {[int64]$_}); if($samples.Count -lt 2){ throw 'continuous writer produced fewer than two durable samples' }; "
+                    "$maxGap=0; for($i=1;$i -lt $samples.Count;$i++){ $gap=($samples[$i]-$samples[$i-1])/10000000; if($gap -gt $maxGap){$maxGap=$gap} }; "
+                    "if($maxGap -gt 30){ throw \"continuous I/O paused for $maxGap seconds\" }; "
+                    "Remove-Item $pidFile,$stop -Force -ErrorAction SilentlyContinue"
+                )
+            else:
+                stop_cmd = ['/bin/sh', '-c', f"pkill -f 'dd if=/dev/urandom of={path}'"]
 
             logging(f"Stopping data writing process {path} in pod {pod_name}")
             res = stream(
@@ -293,24 +361,22 @@ def run_commands_in_pod(pod_name, commands):
     command_output = '\n'.join(lines[:-1])
     return command_output
 
-def get_workload_pod_data_checksum(workload_name, file_name, data_directory="/data"):
+def get_workload_pod_data_checksum(workload_name, file_name, data_directory=None):
 
     pod_name = get_workload_pod_names(workload_name)[0]
 
-    file_path = f"{data_directory}/{file_name}"
+    is_windows = _pod_is_windows(pod_name)
+    file_path = _data_path(is_windows, data_directory, file_name)
     api = client.CoreV1Api()
-    cmd_get_file_checksum = [
-        '/bin/sh',
-        '-c',
-        f"md5sum {file_path} | awk '{{print $1}}' | tr -d ' \n'"
-    ]
+    cmd_get_file_checksum = (_powershell(f"(Get-FileHash -Algorithm MD5 '{file_path}').Hash.ToLowerInvariant()")
+                             if is_windows else ['/bin/sh', '-c', f"md5sum {file_path} | awk '{{print $1}}' | tr -d ' \n'"])
     actual_checksum = stream(
         api.connect_get_namespaced_pod_exec, pod_name, 'default',
         command=cmd_get_file_checksum, stderr=True, stdin=False, stdout=True,
         tty=False)
     return actual_checksum
 
-def check_workload_pod_data_checksum(expected_checksum, workload_name, file_name, data_directory="/data"):
+def check_workload_pod_data_checksum(expected_checksum, workload_name, file_name, data_directory=None):
 
     retry_count, retry_interval = get_retry_count_and_interval()
 
@@ -319,13 +385,11 @@ def check_workload_pod_data_checksum(expected_checksum, workload_name, file_name
             pod_name = get_workload_pod_names(workload_name)[0]
             wait_for_pod_status(pod_name, "Running")
 
-            file_path = f"{data_directory}/{file_name}"
+            is_windows = _pod_is_windows(pod_name)
+            file_path = _data_path(is_windows, data_directory, file_name)
             api = client.CoreV1Api()
-            cmd_get_file_checksum = [
-                '/bin/sh',
-                '-c',
-                f"md5sum {file_path} | awk '{{print $1}}' | tr -d ' \n'"
-            ]
+            cmd_get_file_checksum = (_powershell(f"(Get-FileHash -Algorithm MD5 '{file_path}').Hash.ToLowerInvariant()")
+                                     if is_windows else ['/bin/sh', '-c', f"md5sum {file_path} | awk '{{print $1}}' | tr -d ' \n'"])
             actual_checksum = stream(
                 api.connect_get_namespaced_pod_exec, pod_name, 'default',
                 command=cmd_get_file_checksum, stderr=True, stdin=False, stdout=True,

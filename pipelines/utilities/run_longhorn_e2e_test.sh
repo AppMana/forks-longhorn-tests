@@ -66,6 +66,9 @@ run_longhorn_test(){
   yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env += {"name": "K8S_DISTRO", "value": "'${TF_VAR_k8s_distro_name}'"}' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
   # add os distro for ssh
   yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env += {"name": "OS_DISTRO", "value": "'${DISTRO}'"}' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
+  if [[ -n "${LONGHORN_TEST_TOPOLOGY:-}" ]]; then
+    yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env += {"name": "LONGHORN_TEST_TOPOLOGY", "value": "'${LONGHORN_TEST_TOPOLOGY}'"}' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
+  fi
 
   # for appco test
   yq e -i 'select(.spec.containers[0].env != null).spec.containers[0].env += {"name": "APPCO_TEST", "value": "'${APPCO_TEST}'"}' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
@@ -114,6 +117,29 @@ select(.kind == "Pod").spec.containers[0].volumeMounts += [{
 ' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
   else
     echo "/tmp/public_ip_mapping not found, skipping public IP mapping configmap setup"
+  fi
+
+  # Keep the VM declaration and the Kubernetes topology selector on the same inventory.
+  if [[ -f /tmp/node_inventory.json ]]; then
+    kubectl create configmap node-inventory --from-file=/tmp/node_inventory.json
+    yq -i '
+select(.kind == "Pod").spec.volumes += [{
+  "name": "node-inventory",
+  "configMap": {"name": "node-inventory"}
+}]
+' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
+    yq -i '
+select(.kind == "Pod").spec.containers[0].volumeMounts += [{
+  "name": "node-inventory",
+  "mountPath": "/tmp/node_inventory.json",
+  "subPath": "node_inventory.json",
+  "readOnly": true
+}]
+select(.kind == "Pod").spec.containers[0].env += [{
+  "name": "LONGHORN_NODE_INVENTORY",
+  "value": "/tmp/node_inventory.json"
+}]
+' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
   fi
 
   # share ssh key with test pod for later use, e.g. ssh to nodes
@@ -272,6 +298,8 @@ run_longhorn_test_out_of_cluster(){
              -e LONGHORN_TRANSIENT_VERSION="${LONGHORN_TRANSIENT_VERSION}"\
              -e K8S_DISTRO="${TF_VAR_k8s_distro_name}"\
              -e OS_DISTRO="${DISTRO}"\
+             -e LONGHORN_TEST_TOPOLOGY="${LONGHORN_TEST_TOPOLOGY:-}"\
+             -e LONGHORN_NODE_INVENTORY="/tmp/node_inventory.json"\
              --mount source="vol-${IMAGE_NAME}",target=/tmp \
              --mount source="vol-${IMAGE_NAME}",target=/root/.ssh \
              "${LONGHORN_TESTS_CUSTOM_IMAGE}" "${ROBOT_COMMAND_ARGS[@]}"

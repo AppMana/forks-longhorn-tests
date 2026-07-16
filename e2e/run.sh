@@ -30,4 +30,12 @@ for ((i=0; i<count; i++)); do
   tests+=("./tests")
 done
 
-robot -x junit.xml -P ./libs -d /tmp/test-report "${args[@]}" "${tests[@]}"
+listener_args=()
+if [[ -n "${LONGHORN_TEST_TOPOLOGY:-}" ]]; then
+  listener_args+=(
+    --listener
+    "./libs/expected_failure_listener.py:${LONGHORN_TEST_TOPOLOGY}:./expected-failures.yaml"
+  )
+fi
+
+robot -x junit.xml -P ./libs -d /tmp/test-report "${listener_args[@]}" "${args[@]}" "${tests[@]}"
