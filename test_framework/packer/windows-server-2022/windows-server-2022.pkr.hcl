@@ -73,10 +73,10 @@ source "qemu" "windows_server_2022" {
   boot_wait      = "5s"
   boot_command   = ["<spacebar>"]
 
-  # Launch generalization asynchronously as the builder shutdown command. The
-  # WinRM request must return before Sysprep tears WinRM down; Packer can then
-  # monitor QEMU directly until Windows has finished and powered itself off.
-  shutdown_command = "powershell.exe -NoProfile -NonInteractive -Command \"Start-Process -FilePath 'C:\\Windows\\System32\\Sysprep\\Sysprep.exe' -ArgumentList '/generalize','/oobe','/shutdown','/quiet'\""
+  # Task Scheduler owns Sysprep outside the WinRM job. The shutdown request can
+  # return before WinRM is torn down, then Packer monitors QEMU directly until
+  # Windows has finished generalizing and powered itself off.
+  shutdown_command = "powershell.exe -NoProfile -NonInteractive -Command \"$action = New-ScheduledTaskAction -Execute 'C:\\Windows\\System32\\Sysprep\\Sysprep.exe' -Argument '/generalize /oobe /shutdown /quiet'; Register-ScheduledTask -TaskName 'PackerSysprep' -Action $action -User 'SYSTEM' -RunLevel Highest -Force | Out-Null; Start-ScheduledTask -TaskName 'PackerSysprep'\""
   shutdown_timeout = "1h"
 }
 
