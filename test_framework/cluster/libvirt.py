@@ -22,7 +22,7 @@ class LibvirtProvider(Provider):
     def _vagrant_environment(self) -> dict[str, str]:
         environment = os.environ.copy()
         environment.update({
-            "LONGHORN_TEST_TOPOLOGY": str(self.run_dir / "topology.json"),
+            "LONGHORN_TEST_TOPOLOGY_FILE": str(self.run_dir / "topology.json"),
             "LONGHORN_TEST_RUN_DIR": str(self.run_dir),
             "VAGRANT_CWD": str(self.vagrant_dir),
         })

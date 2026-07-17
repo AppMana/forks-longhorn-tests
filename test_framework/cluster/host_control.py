@@ -62,7 +62,7 @@ def main() -> None:
         validate_vagrant(arguments, nodes)
         command = ["vagrant", *arguments]
         cwd = args.repository / "test_framework" / "vagrant" / "mixed-rke2"
-        environment = {**os.environ, "LONGHORN_TEST_TOPOLOGY": str(args.run_dir / "topology.json"), "LONGHORN_TEST_RUN_DIR": str(args.run_dir)}
+        environment = {**os.environ, "LONGHORN_TEST_TOPOLOGY_FILE": str(args.run_dir / "topology.json"), "LONGHORN_TEST_RUN_DIR": str(args.run_dir)}
     elif kind == "fault":
         if not arguments or arguments[0] not in FAULT_ACTIONS:
             fail("fault action is not allowed")

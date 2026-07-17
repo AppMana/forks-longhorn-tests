@@ -2,7 +2,7 @@
 
 require "json"
 
-topology_path = ENV.fetch("LONGHORN_TEST_TOPOLOGY")
+topology_path = ENV.fetch("LONGHORN_TEST_TOPOLOGY_FILE")
 run_dir = ENV.fetch("LONGHORN_TEST_RUN_DIR")
 topology = JSON.parse(File.read(topology_path))
 cluster = topology.fetch("cluster")

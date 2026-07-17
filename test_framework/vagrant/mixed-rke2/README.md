@@ -20,3 +20,10 @@ python3 test_framework/cluster/clusterctl.py --provider libvirt down
 The management NIC remains outside the OVS fault domain. Kubernetes, storage,
 and replica traffic use the data NIC. Every worker receives a 100 GiB sparse
 qcow2 disk; Windows workers format it as NTFS or ReFS according to the topology.
+
+For an out-of-cluster Robot run against VMs owned by `qemu:///system`, set
+`VAGRANT_CMD` to `test_framework/cluster/vagrant_system.py`. The wrapper keeps
+the invoking user's Vagrant boxes and state while elevating only the Vagrant
+process needed to access system libvirt. `LONGHORN_TEST_TOPOLOGY_FILE` points
+Vagrant at the generated JSON topology; `LONGHORN_TEST_TOPOLOGY` remains the
+Robot profile name (for example, `windows-gate`).
