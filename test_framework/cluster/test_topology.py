@@ -27,14 +27,16 @@ class TopologyTest(unittest.TestCase):
             ],
         )
 
-    def test_containerd_profiles_reuse_nodes_and_override_only_cluster_version(self):
+    def test_containerd_profiles_reuse_build_defaults_on_isolated_clusters(self):
         current = load_topology(TOPOLOGY, "windows-containerd2")
         legacy = load_topology(TOPOLOGY, "windows-containerd1")
-        self.assertEqual([node.name for node in current.nodes], [node.name for node in legacy.nodes])
+        self.assertEqual(["server-containerd1", "windows-containerd1"], [node.name for node in legacy.nodes])
         self.assertEqual("v1.34.2+rke2r1", current.cluster["rke2_version"])
         self.assertEqual(2, current.cluster["expected_containerd_major"])
         self.assertEqual("v1.25.6+rke2r1", legacy.cluster["rke2_version"])
         self.assertEqual(1, legacy.cluster["expected_containerd_major"])
+        self.assertNotEqual(current.cluster["data_network"]["bridge"], legacy.cluster["data_network"]["bridge"])
+        self.assertEqual("longhorn/windows-server-2022", legacy.nodes[1].box)
         for node in current.nodes:
             if node.os == "windows":
                 self.assertEqual("2", node.labels["longhorn.io/test-containerd-major"])

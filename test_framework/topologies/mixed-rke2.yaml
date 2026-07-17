@@ -105,6 +105,29 @@ nodes:
         tap: lhw-linux2
         labels:
           node-role.longhorn.io/worker: "true"
+      - name: server-containerd1
+        os: linux
+        role: server
+        cpus: 2
+        memory_mb: 6144
+        data_ip: 172.29.0.10
+        management_ip: 192.168.121.50
+        mac: "52:54:00:29:00:10"
+        tap: lhc1-server0
+        labels:
+          node-role.longhorn.io/worker: "true"
+      - name: windows-containerd1
+        os: windows
+        role: agent
+        filesystem: ntfs
+        cpus: 3
+        memory_mb: 8192
+        data_ip: 172.29.0.30
+        management_ip: 192.168.121.60
+        mac: "52:54:00:29:00:30"
+        tap: lhc1-winnt0
+        labels:
+          node-role.longhorn.io/worker: "true"
 
 profiles:
   linux-smoke:
@@ -119,12 +142,21 @@ profiles:
       - windows-ntfs-1
       - windows-refs-0
   windows-containerd1:
-    extends: windows-gate
+    node_names:
+      - server-containerd1
+      - windows-containerd1
     cluster:
       # RKE2 v1.25.6 embeds containerd 1.6.15. This is the last HostProcess
       # mount layout that exposes projected volumes only below the sandbox.
       rke2_version: v1.25.6+rke2r1
       expected_containerd_major: 1
+      data_network:
+        bridge: lh-e2e-data1
+        cidr: 172.29.0.0/24
+        pod_interface: eth2
+        pod_range_start: 172.29.0.128
+        pod_range_end: 172.29.0.254
+        network_attachment: longhorn-storage
   windows-containerd2:
     extends: windows-gate
   full:
