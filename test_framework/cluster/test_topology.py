@@ -2,6 +2,7 @@ import ipaddress
 from pathlib import Path
 import unittest
 
+from test_framework.cluster.provider import CommandError, vagrant_fixture_directory
 from test_framework.cluster.topology import load_topology
 
 
@@ -9,6 +10,16 @@ TOPOLOGY = Path(__file__).parents[1] / "topologies" / "mixed-rke2.yaml"
 
 
 class TopologyTest(unittest.TestCase):
+    def test_vagrant_fixture_is_selected_by_topology(self):
+        repository = Path(__file__).parents[2]
+        topology = load_topology(TOPOLOGY, "windows-gate")
+        self.assertEqual(
+            repository / "test_framework" / "vagrant" / "mixed-rke2",
+            vagrant_fixture_directory(repository, topology.cluster),
+        )
+        with self.assertRaises(CommandError):
+            vagrant_fixture_directory(repository, {})
+
     def test_linux_smoke_reuses_the_canonical_server_and_worker(self):
         topology = load_topology(TOPOLOGY, "linux-smoke")
         self.assertEqual(["server-0", "linux-worker-0"], [node.name for node in topology.nodes])

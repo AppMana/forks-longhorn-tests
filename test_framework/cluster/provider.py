@@ -16,6 +16,17 @@ class CommandError(RuntimeError):
     pass
 
 
+def vagrant_fixture_directory(repository: Path, cluster: Mapping[str, object]) -> Path:
+    """Resolve the VM provisioning fixture selected by the topology."""
+    fixture = cluster.get("vagrant_fixture")
+    if not isinstance(fixture, str) or not fixture or Path(fixture).name != fixture:
+        raise CommandError("topology cluster.vagrant_fixture must be a fixture directory name")
+    directory = repository / "test_framework" / "vagrant" / fixture
+    if not (directory / "Vagrantfile").is_file():
+        raise CommandError(f"Vagrant fixture {fixture!r} has no Vagrantfile at {directory}")
+    return directory
+
+
 def run(
     command: Sequence[str],
     *,

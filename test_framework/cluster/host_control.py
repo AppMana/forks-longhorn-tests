@@ -14,6 +14,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from test_framework.cluster.provider import CommandError, vagrant_fixture_directory
+else:
+    from .provider import CommandError, vagrant_fixture_directory
+
 
 VAGRANT_ACTIONS = {"status", "up", "halt", "reload", "snapshot"}
 SNAPSHOT_ACTIONS = {"save", "delete", "restore"}
@@ -61,7 +67,10 @@ def main() -> None:
     if kind == "vagrant":
         validate_vagrant(arguments, nodes)
         command = ["vagrant", *arguments]
-        cwd = args.repository / "test_framework" / "vagrant" / "mixed-rke2"
+        try:
+            cwd = vagrant_fixture_directory(args.repository, topology["cluster"])
+        except (CommandError, KeyError) as exc:
+            fail(str(exc))
         environment = {**os.environ, "LONGHORN_TEST_TOPOLOGY_FILE": str(args.run_dir / "topology.json"), "LONGHORN_TEST_RUN_DIR": str(args.run_dir)}
     elif kind == "fault":
         if not arguments or arguments[0] not in FAULT_ACTIONS:

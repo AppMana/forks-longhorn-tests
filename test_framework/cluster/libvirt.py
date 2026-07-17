@@ -11,16 +11,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 
-from .provider import CommandError, Provider, run
+from .provider import CommandError, Provider, run, vagrant_fixture_directory
 
 
 class LibvirtProvider(Provider):
     @property
     def vagrant_dir(self) -> Path:
-        fixture = str(self.topology.cluster.get("vagrant_fixture", "mixed-rke2"))
-        if not fixture or Path(fixture).name != fixture:
-            raise CommandError(f"invalid Vagrant fixture name {fixture!r}")
-        return self.repository / "test_framework" / "vagrant" / fixture
+        return vagrant_fixture_directory(self.repository, self.topology.cluster)
 
     @property
     def network_cli(self) -> Path:
