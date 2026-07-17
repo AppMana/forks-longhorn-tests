@@ -73,7 +73,7 @@ Vagrant.configure("2") do |config|
             cluster_token, cluster.fetch("rke2_version"), node.fetch("filesystem"),
             labels, taints
           ],
-          privileged: true,
+          privileged: false,
           reboot: true
       else
         machine.vm.provision "shell",

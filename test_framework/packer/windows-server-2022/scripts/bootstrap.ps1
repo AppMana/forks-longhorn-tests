@@ -3,6 +3,12 @@ Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
 Enable-PSRemoting -SkipNetworkProfileCheck -Force
 Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value True
 Set-Item WSMan:\localhost\Service\Auth\Basic -Value True
+New-ItemProperty `
+    -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
+    -Name LocalAccountTokenFilterPolicy `
+    -PropertyType DWord `
+    -Value 1 `
+    -Force | Out-Null
 & winrm.cmd set winrm/config/winrs '@{MaxMemoryPerShellMB="2048"}'
 & sc.exe config WinRM start= auto
 Start-Service WinRM
