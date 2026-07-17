@@ -45,7 +45,11 @@ class LibvirtProvider(Provider):
         self._require_local_windows_boxes()
         meminfo = Path("/proc/meminfo").read_text(encoding="ascii")
         available_kib = int(next(line.split()[1] for line in meminfo.splitlines() if line.startswith("MemAvailable:")))
-        required_kib = (sum(node.memory_mb for node in self.topology.nodes) + 16384) * 1024
+        running_nodes = self._running_vagrant_nodes()
+        additional_memory_mb = sum(
+            node.memory_mb for node in self.topology.nodes if node.name not in running_nodes
+        )
+        required_kib = (additional_memory_mb + 16384) * 1024
         if available_kib < required_kib:
             raise CommandError(
                 f"profile requires {required_kib // 1024} MiB including host headroom; "
@@ -54,6 +58,24 @@ class LibvirtProvider(Provider):
         bridge = self.topology.cluster["data_network"]["bridge"]
         if len(bridge) > 15:
             raise CommandError("OVS bridge names must fit the Linux interface-name limit")
+
+    def _running_vagrant_nodes(self) -> set[str]:
+        completed = subprocess.run(
+            ["vagrant", "status", "--machine-readable"],
+            cwd=self.vagrant_dir,
+            env=self._vagrant_environment(),
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if completed.returncode != 0:
+            return set()
+        running: set[str] = set()
+        for line in completed.stdout.splitlines():
+            fields = line.split(",", 3)
+            if len(fields) == 4 and fields[2] == "state" and fields[3] == "running":
+                running.add(fields[1])
+        return running
 
     def up(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
