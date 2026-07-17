@@ -13,14 +13,17 @@ if ($actualChecksum -ne $env:VIRTIO_ISO_CHECKSUM) {
 Mount-DiskImage -ImagePath $virtioImage | Out-Null
 $virtio = Get-DiskImage -ImagePath $virtioImage | Get-Volume
 $virtioRoot = "$($virtio.DriveLetter):\"
-$drivers = Get-ChildItem -Path $virtioRoot -Filter '*.inf' -Recurse | Where-Object {
-    $_.FullName -match '\\2k22\\amd64\\'
-}
-if (-not $drivers) { throw 'the virtio ISO contains no Windows Server 2022 amd64 drivers' }
-$drivers | ForEach-Object {
-    & pnputil.exe /add-driver $_.FullName /install | Out-Null
-    if ($LASTEXITCODE -notin 0, 3010) {
-        throw "pnputil failed for $($_.FullName) with exit code $LASTEXITCODE"
+$driverFamilies = @('Balloon', 'NetKVM', 'vioscsi', 'vioserial', 'viostor')
+foreach ($family in $driverFamilies) {
+    $drivers = @(Get-ChildItem -Path (Join-Path $virtioRoot "$family\2k22\amd64") -Filter '*.inf')
+    if (-not $drivers) { throw "the virtio ISO contains no Server 2022 amd64 driver for $family" }
+    foreach ($driver in $drivers) {
+        # Stage packages in the driver store. PnP binds them after Vagrant
+        # switches the imported guest from bootstrap IDE/e1000 to virtio.
+        & pnputil.exe /add-driver $driver.FullName | Out-Null
+        if ($LASTEXITCODE -notin 0, 3010) {
+            throw "pnputil failed for $($driver.FullName) with exit code $LASTEXITCODE"
+        }
     }
 }
 
