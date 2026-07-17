@@ -42,6 +42,19 @@ profiles:
     engine_os: windows
     replica_os: [windows, linux]
 
+  # Runtime compatibility lanes intentionally use the smallest useful VM
+  # shape. The containerd/kubelet versions come from node inventory; Robot
+  # only needs the scheduling capabilities represented here.
+  windows-containerd1: &windows-runtime-lane
+    nodes:
+      - {os: windows, filesystem: ntfs}
+    engine_os: windows
+    replica_os: [windows]
+
+  windows-containerd17: *windows-runtime-lane
+
+  windows-containerd2: *windows-runtime-lane
+
   full:
     nodes:
       - {os: windows, filesystem: ntfs}
