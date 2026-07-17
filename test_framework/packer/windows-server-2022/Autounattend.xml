@@ -30,7 +30,7 @@
       <OOBE><HideEULAPage>true</HideEULAPage><HideLocalAccountScreen>true</HideLocalAccountScreen><HideOnlineAccountScreens>true</HideOnlineAccountScreens><NetworkLocation>Work</NetworkLocation><ProtectYourPC>1</ProtectYourPC></OOBE>
       <UserAccounts><AdministratorPassword><Value>vagrant</Value><PlainText>true</PlainText></AdministratorPassword><LocalAccounts><LocalAccount wcm:action="add"><Password><Value>vagrant</Value><PlainText>true</PlainText></Password><Description>Vagrant user</Description><DisplayName>vagrant</DisplayName><Group>Administrators</Group><Name>vagrant</Name></LocalAccount></LocalAccounts></UserAccounts>
       <AutoLogon><Password><Value>vagrant</Value><PlainText>true</PlainText></Password><Enabled>true</Enabled><LogonCount>1</LogonCount><Username>vagrant</Username></AutoLogon>
-      <FirstLogonCommands><SynchronousCommand wcm:action="add"><Order>1</Order><CommandLine>for %d in (D E F G H) do if exist %d:\bootstrap.ps1 powershell.exe -NoProfile -ExecutionPolicy Bypass -File %d:\bootstrap.ps1</CommandLine><Description>Enable WinRM for Packer</Description></SynchronousCommand></FirstLogonCommands>
+      <FirstLogonCommands><SynchronousCommand wcm:action="add"><Order>1</Order><CommandLine>cmd.exe /c &quot;for %d in (D E F G H) do @if exist %d:\bootstrap.ps1 powershell.exe -NoProfile -ExecutionPolicy Bypass -File %d:\bootstrap.ps1&quot;</CommandLine><Description>Enable WinRM for Packer</Description></SynchronousCommand></FirstLogonCommands>
     </component>
   </settings>
 </unattend>
