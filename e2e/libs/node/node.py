@@ -18,6 +18,7 @@ from node_exec import NodeExec
 class Node:
 
     DEFAULT_DISK_PATH = "/var/lib/longhorn"
+    WINDOWS_DEFAULT_DISK_PATH = r"C:\var\lib\longhorn"
     DEFAULT_VOLUME_PATH = "/dev/longhorn/"
 
     all_nodes = None
@@ -99,14 +100,33 @@ class Node:
         assert added, f"Adding disk {disk} to node {node_name} failed"
 
     def reset_disks(self, node_name, data_engine="v1", default_block_disk_path=None):
-        client = get_longhorn_client()
-        node = client.by_id_node(node_name)
+        longhorn_client = get_longhorn_client()
+        node = longhorn_client.by_id_node(node_name)
+
+        # The VM harness gives every worker the same logical Longhorn data disk,
+        # but Kubernetes reports Linux paths with an optional trailing slash and
+        # Windows paths with drive-letter syntax. Keep the existing disk instead
+        # of attempting to add a duplicate during the common cleanup lifecycle.
+        kube_node = client.CoreV1Api().read_node(node_name)
+        operating_system = kube_node.metadata.labels.get("kubernetes.io/os", "linux")
+        default_disk_path = (
+            self.WINDOWS_DEFAULT_DISK_PATH
+            if operating_system.lower() == "windows"
+            else self.DEFAULT_DISK_PATH
+        )
+
+        def is_default_disk_path(path):
+            actual = str(path).replace("\\", "/").rstrip("/")
+            expected = default_disk_path.replace("\\", "/").rstrip("/")
+            if ":" in actual or ":" in expected:
+                return actual.casefold() == expected.casefold()
+            return actual == expected
 
         disks = {}
         # copy Longhorn RestObject into a normal Python dict
         # otherwise we got TypeError: 'RestObject' object does not support item assignment
         for disk_name, disk in node.disks.items():
-            allow_sched = disk.path == self.DEFAULT_DISK_PATH or disk_name == DEFAULT_BLOCK_DISK_NAME
+            allow_sched = is_default_disk_path(disk.path) or disk_name == DEFAULT_BLOCK_DISK_NAME
             disks[disk_name] = {
                 "path": disk.path,
                 "diskType": disk.diskType,
@@ -114,19 +134,19 @@ class Node:
             }
 
         # add default back if not exist
-        if not any(disk.get("path") == self.DEFAULT_DISK_PATH for disk in disks.values()):
-            logging(f"Default disk with path {self.DEFAULT_DISK_PATH} not found on node {node_name}, re-adding it")
+        if not any(is_default_disk_path(disk.get("path")) for disk in disks.values()):
+            logging(f"Default disk with path {default_disk_path} not found on node {node_name}, re-adding it")
 
             disks["default-disk"] = {
-                "path": self.DEFAULT_DISK_PATH,
+                "path": default_disk_path,
                 "diskType": "filesystem",
                 "allowScheduling": True
             }
 
         # add block disk back if not exist
         if data_engine == "v2" and not any(disk.get("path") == default_block_disk_path for disk in disks.values()):
-            setting = client.by_id_setting("v2-data-engine")
-            client.update(setting, value="true")
+            setting = longhorn_client.by_id_setting("v2-data-engine")
+            longhorn_client.update(setting, value="true")
             logging(f"Block disk {DEFAULT_BLOCK_DISK_NAME} not found on node {node_name}, re-adding it for v2")
 
             disks[DEFAULT_BLOCK_DISK_NAME] = {
@@ -142,7 +162,7 @@ class Node:
 
         for disk_name, disk in iter(node.disks.items()):
             # do not disable block-disk if v2 data engine enabled
-            if disk.path != self.DEFAULT_DISK_PATH and not (data_engine == "v2" and disk_name == DEFAULT_BLOCK_DISK_NAME):
+            if not is_default_disk_path(disk.path) and not (data_engine == "v2" and disk_name == DEFAULT_BLOCK_DISK_NAME):
                 disk.allowScheduling = False
                 logging(f"Disabling scheduling disk {disk_name} on node {node_name}")
             else:
@@ -154,7 +174,7 @@ class Node:
         disks = {}
         for disk_name, disk in iter(node.disks.items()):
             # do not delete block-disk if v2 data engine enabled
-            if disk.path == self.DEFAULT_DISK_PATH or (data_engine == "v2" and disk_name == DEFAULT_BLOCK_DISK_NAME):
+            if is_default_disk_path(disk.path) or (data_engine == "v2" and disk_name == DEFAULT_BLOCK_DISK_NAME):
                 disks[disk_name] = disk
                 disk.allowScheduling = True
                 logging(f"Keeping disk {disk_name} on node {node_name}")

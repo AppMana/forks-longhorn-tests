@@ -89,6 +89,7 @@ class LibvirtProvider(Provider):
         self._vagrant("up", "--provider=libvirt", "--parallel")
         self._export_kubeconfig()
         self._wait_for_nodes()
+        self._configure_storage_network()
 
     def _require_local_windows_boxes(self) -> None:
         required = {node.box for node in self.topology.nodes if node.os == "windows"}
@@ -148,6 +149,46 @@ class LibvirtProvider(Provider):
                 last_detail = completed.stderr.strip() or completed.stdout.strip()
             time.sleep(5)
         raise CommandError(f"nodes did not become Ready within {timeout_seconds}s: {last_detail}")
+
+    def _configure_storage_network(self, timeout_seconds: int = 600) -> None:
+        secondary = self.topology.cluster.get("secondary_cni", {})
+        network = self.topology.cluster.get("data_network", {})
+        if secondary.get("name") != "multus":
+            return
+
+        kubeconfig = self.run_dir / "kubeconfig.yaml"
+        deadline = time.monotonic() + timeout_seconds
+        command = [
+            "kubectl", "--kubeconfig", str(kubeconfig), "get", "crd",
+            "network-attachment-definitions.k8s.cni.cncf.io",
+        ]
+        while time.monotonic() < deadline:
+            if subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                break
+            time.sleep(5)
+        else:
+            raise CommandError("RKE2 Multus NetworkAttachmentDefinition CRD did not become ready")
+
+        manifest = {
+            "apiVersion": "k8s.cni.cncf.io/v1",
+            "kind": "NetworkAttachmentDefinition",
+            "metadata": {"name": network["network_attachment"], "namespace": "kube-system"},
+            "spec": {"config": json.dumps({
+                "cniVersion": "0.3.1",
+                "type": "macvlan",
+                "master": network["pod_interface"],
+                "mode": "bridge",
+                "ipam": {
+                    "type": secondary.get("ipam", "whereabouts"),
+                    "range": network["cidr"],
+                    "range_start": network["pod_range_start"],
+                    "range_end": network["pod_range_end"],
+                },
+            }, separators=(",", ":"))},
+        }
+        manifest_path = self.run_dir / "storage-network.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        run(["kubectl", "--kubeconfig", str(kubeconfig), "apply", "-f", str(manifest_path)])
 
     def down(self) -> None:
         if (self.run_dir / "topology.json").exists():

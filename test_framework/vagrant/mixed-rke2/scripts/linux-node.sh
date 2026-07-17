@@ -47,7 +47,9 @@ mkdir -p /etc/rancher/rke2
   echo "node-name: \"$NODE_NAME\""
   echo "node-ip: \"$NODE_IP\""
   if [[ "$ROLE" == server ]]; then
-    echo "cni: \"$CNI\""
+    echo "cni:"
+    IFS=',' read -ra cnis <<< "$CNI"
+    for cni in "${cnis[@]}"; do echo "  - \"$cni\""; done
     echo "advertise-address: \"$NODE_IP\""
     echo "tls-san:"
     echo "  - \"$NODE_IP\""
@@ -66,6 +68,21 @@ mkdir -p /etc/rancher/rke2
     for value in "${values[@]}"; do echo "  - \"$value\""; done
   fi
 } >/etc/rancher/rke2/config.yaml
+
+if [[ "$ROLE" == server && ",$CNI," == *,multus,* ]]; then
+  mkdir -p /var/lib/rancher/rke2/server/manifests
+  cat >/var/lib/rancher/rke2/server/manifests/rke2-multus-config.yaml <<'EOF'
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-multus
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    rke2-whereabouts:
+      enabled: true
+EOF
+fi
 
 if [[ "$ROLE" != server ]]; then
   until curl --connect-timeout 5 --fail --insecure "https://$SERVER_IP:9345/ping" >/dev/null; do sleep 5; done

@@ -66,6 +66,7 @@ Vagrant.configure("2") do |config|
 
       labels = node.fetch("labels", {}).map { |key, value| "#{key}=#{value}" }.join(",")
       taints = node.fetch("taints", []).join(",")
+      cnis = [cluster.dig("secondary_cni", "name"), cluster.fetch("cni")].compact.join(",")
       if node.fetch("os") == "windows"
         machine.vm.provision "shell",
           path: "scripts/windows-agent.ps1",
@@ -83,7 +84,7 @@ Vagrant.configure("2") do |config|
           args: [
             node.fetch("name"), node.fetch("role"), node.fetch("data_ip"),
             node.fetch("management_ip"), server.fetch("data_ip"), cluster_token, cluster.fetch("rke2_version"),
-            cluster.fetch("cni"), node.fetch("filesystem", ""), labels, taints
+            cnis, node.fetch("filesystem", ""), labels, taints
           ]
       end
     end

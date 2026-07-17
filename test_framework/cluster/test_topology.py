@@ -1,3 +1,4 @@
+import ipaddress
 from pathlib import Path
 import unittest
 
@@ -17,6 +18,14 @@ class TopologyTest(unittest.TestCase):
         self.assertEqual(5, len(topology.nodes))
         self.assertEqual(3, len([node for node in topology.nodes if node.os == "windows"]))
         self.assertEqual({"ntfs", "refs"}, {node.filesystem for node in topology.nodes if node.os == "windows"})
+        self.assertEqual(
+            [node.filesystem for node in topology.nodes if node.filesystem],
+            [
+                node.labels["longhorn.io/test-filesystem"]
+                for node in topology.nodes
+                if node.filesystem
+            ],
+        )
 
     def test_full_matches_aws_worker_shape(self):
         topology = load_topology(TOPOLOGY, "full")
@@ -31,6 +40,15 @@ class TopologyTest(unittest.TestCase):
         self.assertEqual(len(topology.nodes), len({node.data_ip for node in topology.nodes}))
         self.assertEqual(len(topology.nodes), len({node.management_ip for node in topology.nodes}))
         self.assertEqual(len(topology.nodes), len({node.tap for node in topology.nodes}))
+
+    def test_local_storage_network_does_not_allocate_node_addresses(self):
+        topology = load_topology(TOPOLOGY, "windows-gate")
+        network = topology.cluster["data_network"]
+        start = ipaddress.ip_address(network["pod_range_start"])
+        end = ipaddress.ip_address(network["pod_range_end"])
+        for node in topology.nodes:
+            address = ipaddress.ip_address(node.data_ip)
+            self.assertFalse(start <= address <= end)
 
 
 if __name__ == "__main__":

@@ -88,6 +88,10 @@ def load_topology(path: Path, profile: str) -> Topology:
         merged = {**defaults.get(os_name, {}), **spec}
         if merged["role"] == "agent":
             merged = {**defaults.get("worker", {}), **merged}
+        filesystem = str(merged.get("filesystem", ""))
+        node_labels = {str(k): str(v) for k, v in merged.get("labels", {}).items()}
+        if filesystem:
+            node_labels.setdefault("longhorn.io/test-filesystem", filesystem)
         node = Node(
             name=str(merged["name"]),
             os=os_name,
@@ -96,13 +100,13 @@ def load_topology(path: Path, profile: str) -> Topology:
             management_ip=str(merged["management_ip"]),
             mac=str(merged["mac"]).lower(),
             tap=str(merged["tap"]),
-            filesystem=str(merged.get("filesystem", "")),
+            filesystem=filesystem,
             box=str(merged["box"]),
             cpus=int(merged["cpus"]),
             memory_mb=int(merged["memory_mb"]),
             root_disk_gb=int(merged["root_disk_gb"]),
             data_disk_gb=int(merged.get("data_disk_gb", 0)),
-            labels={str(k): str(v) for k, v in merged.get("labels", {}).items()},
+            labels=node_labels,
             taints=[str(value) for value in merged.get("taints", [])],
         )
         if node.name in names or node.data_ip in addresses or node.management_ip in addresses:

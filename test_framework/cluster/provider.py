@@ -66,9 +66,8 @@ class Provider(ABC):
             "cluster_name": self.topology.cluster["name"],
             "provider": provider_name,
             "kubernetes": self.topology.cluster["kubernetes"],
-            "nodes": [
-                {
-                    "name": node.name,
+            "nodes": {
+                node.name: {
                     "os": node.os,
                     "role": node.role,
                     "private_ip": node.data_ip,
@@ -76,7 +75,7 @@ class Provider(ABC):
                     "filesystem": node.filesystem,
                 }
                 for node in self.topology.nodes
-            ],
+            },
         }
         (self.run_dir / "node-inventory.json").write_text(
             json.dumps(inventory, indent=2) + "\n", encoding="utf-8"

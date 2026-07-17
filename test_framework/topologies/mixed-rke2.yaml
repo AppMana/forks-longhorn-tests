@@ -3,10 +3,17 @@ cluster:
   name: longhorn-windows
   kubernetes: rke2
   cni: calico
+  secondary_cni:
+    name: multus
+    ipam: whereabouts
   rke2_version: v1.34.2+rke2r1
   data_network:
     bridge: lh-e2e-data
     cidr: 172.28.0.0/24
+    pod_interface: eth2
+    pod_range_start: 172.28.0.128
+    pod_range_end: 172.28.0.254
+    network_attachment: longhorn-storage
   management_network:
     name: lh-e2e-management
     cidr: 192.168.121.0/24

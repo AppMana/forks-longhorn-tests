@@ -34,7 +34,7 @@ listener_args=()
 if [[ -n "${LONGHORN_TEST_TOPOLOGY:-}" ]]; then
   listener_args+=(
     --listener
-    "./libs/expected_failure_listener.py:${LONGHORN_TEST_TOPOLOGY}:./expected-failures.yaml"
+    "expected_failure_listener.ExpectedFailureListener:${LONGHORN_TEST_TOPOLOGY}:./expected-failures.yaml"
   )
 fi
 
