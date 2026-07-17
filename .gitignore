@@ -25,6 +25,7 @@ pyvenv.cfg
 # Robot Framework output files
 *.html
 *.xml
+!test_framework/packer/windows-server-2022/Autounattend.xml
 /tmp/test-report/
 
 # Local Vagrant machine state and generated communicator credentials.
