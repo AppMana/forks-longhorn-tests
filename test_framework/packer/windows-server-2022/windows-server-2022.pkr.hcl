@@ -88,6 +88,17 @@ build {
     ]
     scripts = [
       "${path.root}/scripts/install-prerequisites.ps1",
+    ]
+  }
+
+  provisioner "windows-restart" {
+    restart_timeout = "30m"
+  }
+
+  provisioner "powershell" {
+    elevated_user     = "vagrant"
+    elevated_password = "vagrant"
+    scripts = [
       "${path.root}/scripts/compact.ps1",
     ]
   }
