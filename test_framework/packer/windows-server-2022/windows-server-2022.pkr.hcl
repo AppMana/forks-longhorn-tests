@@ -55,6 +55,15 @@ source "qemu" "windows_server_2022" {
   output_directory = var.output_directory
   vm_name          = "windows-server-2022.qcow2"
 
+  # Seed a complete firmware identity for tools that consume SMBIOS. The
+  # Vagrant/libvirt runtime replaces this build identity with a deterministic
+  # per-node UUID. Win32_ComputerSystemProduct remains optional on QEMU, so the
+  # Kubernetes 1.25 profile also uses the upstream registry UUID fix.
+  qemuargs = [
+    ["-uuid", "779c9b3d-f9d3-5d7d-9caf-d608dc38d270"],
+    ["-smbios", "type=1,manufacturer=Longhorn,product=Longhorn test image,version=1,serial=packer-windows-server-2022,uuid=779c9b3d-f9d3-5d7d-9caf-d608dc38d270,family=Longhorn integration tests"],
+  ]
+
   iso_url      = var.iso_url
   iso_checksum = var.iso_checksum
 

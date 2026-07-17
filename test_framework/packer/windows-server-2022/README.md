@@ -27,4 +27,9 @@ vagrant box add --name longhorn/windows-server-2022 /home/administrator/Document
 ```
 
 RKE2, CSI proxy, and Longhorn are intentionally excluded from the image and are
-installed per test run. Defender, the firewall, and IPv6 remain enabled.
+installed per test run. The build seeds a non-empty SMBIOS system identity and
+Vagrant replaces its build UUID with a deterministic per-node UUID. QEMU does
+not guarantee that Windows materializes the optional
+`Win32_ComputerSystemProduct` WMI instance, so the Kubernetes 1.25/containerd 1.6
+profile also pins the later upstream registry UUID fix. Defender, the firewall,
+and IPv6 remain enabled.

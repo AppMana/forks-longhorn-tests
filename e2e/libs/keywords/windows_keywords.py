@@ -8,7 +8,6 @@ from kubernetes import client
 
 from engine import Engine
 from node_exec import NodeExec
-from node_exec.constant import WINDOWS_DEFAULT_IMAGE
 from node_exec.manifest import build_windows_sandbox_probe_pod
 from utility.utility import logging
 from workload.workload import get_workload_volume_name
@@ -24,22 +23,51 @@ class windows_keywords:
         node = self.core_api.read_node(node_name)
         runtime = node.status.node_info.container_runtime_version
         assert runtime.startswith("containerd://"), f"{node_name} does not use containerd: {runtime}"
-        actual_major = runtime.removeprefix("containerd://").split(".", 1)[0]
+        actual_version = runtime.removeprefix("containerd://")
+        actual_major = actual_version.split(".", 1)[0]
+        actual_line = (
+            ".".join(actual_version.split(".")[:2])
+            if actual_major == "1"
+            else actual_major
+        )
+        expected_line = node.metadata.labels.get(
+            "longhorn.io/test-containerd-line",
+            actual_line,
+        )
         expected_major = node.metadata.labels.get(
             "longhorn.io/test-containerd-major", actual_major
         )
         assert actual_major == expected_major, (
             f"{node_name} runs {runtime}, expected containerd {expected_major}.x"
         )
+        assert actual_version == expected_line or actual_version.startswith(expected_line + "."), (
+            f"{node_name} runs {runtime}, expected containerd {expected_line}.x"
+        )
 
         pod_name = f"windows-sandbox-probe-{uuid.uuid4().hex[:8]}"
-        image = os.environ.get("WINDOWS_NODE_EXEC_IMAGE", WINDOWS_DEFAULT_IMAGE)
+        image = os.environ.get("WINDOWS_SANDBOX_PROBE_IMAGE", "")
+        if not image:
+            image = next(
+                (
+                    name
+                    for status_image in (node.status.images or [])
+                    for name in (status_image.names or [])
+                    if "pause" in name.lower() and "@" not in name
+                ),
+                "",
+            )
+        assert image, (
+            f"{node_name} advertises no tagged cached pause image; set "
+            "WINDOWS_SANDBOX_PROBE_IMAGE to an image containing pause.exe"
+        )
         manifest = build_windows_sandbox_probe_pod(
-            pod_name, node_name, image, expected_major
+            pod_name, node_name, image, expected_line
         )
         self.core_api.create_namespaced_pod("default", manifest)
         try:
-            deadline = time.monotonic() + 300
+            # A first Windows Server Core pull and layer registration can take
+            # several minutes on an otherwise empty containerd 1.x VM.
+            deadline = time.monotonic() + 900
             while time.monotonic() < deadline:
                 pod = self.core_api.read_namespaced_pod(pod_name, "default")
                 if pod.status.phase in ("Succeeded", "Failed"):
@@ -52,17 +80,28 @@ class windows_keywords:
                     assert pod.status.phase == "Succeeded", (
                         f"HostProcess sandbox probe failed on {node_name} ({runtime}): {output}"
                     )
+                    evidence_lines = [
+                        line.removeprefix("LONGHORN_WINDOWS_SANDBOX=")
+                        for line in output.splitlines()
+                        if line.startswith("LONGHORN_WINDOWS_SANDBOX=")
+                    ]
                     evidence = (
-                        json.loads(output.strip().splitlines()[0])
-                        if output.strip()
+                        json.loads(evidence_lines[-1])
+                        if evidence_lines
                         else {
+                            # The scratch-like pause image can lose stdout when
+                            # its very short HostProcess job exits. The script's
+                            # nonzero assertions still make Pod success a hard
+                            # check of every field below.
                             "SandboxToken": True,
+                            "SandboxProjected": True,
                             "ImageBinary": True,
-                            "DirectToken": expected_major != "1",
+                            "DirectToken": expected_line != "1.6",
+                            "DirectProjected": expected_line != "1.6",
                             "OutputCaptured": False,
                         }
                     )
-                    assert evidence["SandboxToken"] and evidence["ImageBinary"], evidence
+                    assert evidence["SandboxToken"] and evidence["SandboxProjected"] and evidence["ImageBinary"], evidence
                     logging(f"Validated HostProcess sandbox mounts on {node_name} ({runtime}): {evidence}")
                     return
                 time.sleep(2)

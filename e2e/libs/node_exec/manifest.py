@@ -74,25 +74,36 @@ def build_windows_node_exec_pod(node_name, image_name):
     }
 
 
-def build_windows_sandbox_probe_pod(pod_name, node_name, image_name, expected_containerd_major):
+def build_windows_sandbox_probe_pod(pod_name, node_name, image_name, expected_containerd_line):
     script = r"""
 $ErrorActionPreference = 'Stop'
-$sandbox = $env:CONTAINER_SANDBOX_MOUNT_POINT
+# hcsshim 0.9.x substitutes this token into the command line before launching
+# PowerShell. Quote it so the resulting C:/C/<sandbox> value remains a string
+# expression instead of being parsed as a command.
+$sandbox = "$env:CONTAINER_SANDBOX_MOUNT_POINT"
 $relativeToken = Join-Path $sandbox 'var\run\secrets\kubernetes.io\serviceaccount\token'
 $directToken = 'C:\var\run\secrets\kubernetes.io\serviceaccount\token'
-$imagePowerShell = Join-Path $sandbox 'Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+$relativeProjected = Join-Path $sandbox 'probe-projected\pod-name'
+$directProjected = 'C:\probe-projected\pod-name'
+$imagePause = Join-Path $sandbox 'pause.exe'
 $result = [ordered]@{
     Sandbox = $sandbox
     SandboxToken = Test-Path $relativeToken
+    SandboxProjected = Test-Path $relativeProjected
     DirectToken = Test-Path $directToken
-    ImageBinary = Test-Path $imagePowerShell
+    DirectProjected = Test-Path $directProjected
+    ImageBinary = Test-Path $imagePause
 }
-$result | ConvertTo-Json -Compress
+Write-Output ('LONGHORN_WINDOWS_SANDBOX=' + ($result | ConvertTo-Json -Compress))
 if (-not $result.SandboxToken) { throw "service-account token is absent below $sandbox" }
+if (-not $result.SandboxProjected) { throw "projected volume is absent below $sandbox" }
 if (-not $result.ImageBinary) { throw "image binary is absent below $sandbox" }
-if ('%s' -eq '1' -and $result.DirectToken) { throw 'containerd 1.6 unexpectedly exposed the projected token at its absolute mount path' }
-if ('%s' -ne '1' -and -not $result.DirectToken) { throw 'containerd 1.7+ did not expose the projected token at its absolute mount path' }
-""" % (expected_containerd_major, expected_containerd_major)
+if ('%s' -eq '1.6' -and ($result.DirectToken -or $result.DirectProjected)) { throw 'containerd 1.6 unexpectedly exposed a projected file at its absolute mount path' }
+if ('%s' -ne '1.6' -and (-not $result.DirectToken -or -not $result.DirectProjected)) { throw 'containerd 1.7+ did not expose a projected file at its absolute mount path' }
+# Give the Windows HostProcess shim time to drain the short-lived process pipe
+# into the CRI log before the job object exits.
+Start-Sleep -Seconds 2
+""" % (expected_containerd_line, expected_containerd_line)
     return {
         "apiVersion": "v1",
         "kind": "Pod",
@@ -114,6 +125,24 @@ if ('%s' -ne '1' -and -not $result.DirectToken) { throw 'containerd 1.7+ did not
                 "name": "sandbox-probe",
                 "command": ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
                 "args": [script],
+                "volumeMounts": [{
+                    "name": "probe-projected",
+                    "mountPath": "C:\\probe-projected",
+                    "readOnly": True,
+                }],
+            }],
+            "volumes": [{
+                "name": "probe-projected",
+                "projected": {
+                    "sources": [{
+                        "downwardAPI": {
+                            "items": [{
+                                "path": "pod-name",
+                                "fieldRef": {"fieldPath": "metadata.name"},
+                            }]
+                        }
+                    }]
+                },
             }],
         },
     }

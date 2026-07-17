@@ -65,6 +65,28 @@ manager, CSI node service, and csi-proxy DaemonSets; the normal chart supplies
 the Linux control-plane components and must be configured with those same
 coordinated image references.
 
+Windows HostProcess mounts have two relevant layouts. containerd 1.6 exposes
+image files and projected volumes only below
+`CONTAINER_SANDBOX_MOUNT_POINT`. containerd 1.7 and containerd 2 additionally
+create each requested direct mount, while retaining the sandbox-relative path
+for compatibility. Longhorn consequently uses the sandbox path as its stable
+ABI for image executables, service-account credentials, TLS secrets, the
+engine-image copy volume, and the CSI registrar. Host paths whose source and
+requested path are identical remain ordinary host paths. The
+`windows-containerd1`, `windows-containerd17`, and `windows-containerd2` VM
+profiles run the same probe. The 1.6 lane asserts that direct projected paths
+are absent; the 1.7 and 2.x lanes assert that both direct and sandbox-relative
+paths are present.
+The 1.6 profile uses RKE2/Kubernetes v1.25.6 and a checksum-pinned kubelet from
+the public `AppMana/forks-kubernetes` branch. It contains only upstream commit
+`26ef4e42e5c8` backported, avoiding the old kubelet's dependency on the optional
+`Win32_ComputerSystemProduct` WMI instance without changing containerd.
+RKE2 and containerd run as the LocalSystem Windows service in every lane, as
+required for hcsshim to create the requested HostProcess user token. The probe
+reuses the tagged Windows pause image already cached for pod sandboxes, invokes
+host PowerShell, and checks `pause.exe` in the image sandbox; this avoids a
+multi-gigabyte Server Core pull without weakening the image-mount assertion.
+
 The Linux engine-image DaemonSet is constrained to Linux. A companion Windows
 HostProcess DaemonSet copies `longhorn.exe` into the same logical host engine
 binary directory and reports readiness independently. Legacy Linux-only engine

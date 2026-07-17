@@ -29,12 +29,20 @@ class TopologyTest(unittest.TestCase):
 
     def test_containerd_profiles_reuse_build_defaults_on_isolated_clusters(self):
         current = load_topology(TOPOLOGY, "windows-containerd2")
+        transitional = load_topology(TOPOLOGY, "windows-containerd17")
         legacy = load_topology(TOPOLOGY, "windows-containerd1")
         self.assertEqual(["server-containerd1", "windows-containerd1"], [node.name for node in legacy.nodes])
+        self.assertEqual(["server-containerd17", "windows-containerd17"], [node.name for node in transitional.nodes])
         self.assertEqual("v1.34.2+rke2r1", current.cluster["rke2_version"])
         self.assertEqual(2, current.cluster["expected_containerd_major"])
+        self.assertEqual("2", current.cluster["expected_containerd_line"])
+        self.assertEqual("v1.30.14+rke2r2", transitional.cluster["rke2_version"])
+        self.assertEqual("1.7", transitional.cluster["expected_containerd_line"])
         self.assertEqual("v1.25.6+rke2r1", legacy.cluster["rke2_version"])
         self.assertEqual(1, legacy.cluster["expected_containerd_major"])
+        self.assertEqual("1.6", legacy.cluster["expected_containerd_line"])
+        self.assertEqual("v1.25.6", legacy.cluster["windows_kubelet"]["version"])
+        self.assertEqual(64, len(legacy.cluster["windows_kubelet"]["sha256"]))
         self.assertNotEqual(current.cluster["data_network"]["bridge"], legacy.cluster["data_network"]["bridge"])
         self.assertEqual("longhorn/windows-server-2022", legacy.nodes[1].box)
         for node in current.nodes:
@@ -43,6 +51,11 @@ class TopologyTest(unittest.TestCase):
         for node in legacy.nodes:
             if node.os == "windows":
                 self.assertEqual("1", node.labels["longhorn.io/test-containerd-major"])
+                self.assertEqual("1.6", node.labels["longhorn.io/test-containerd-line"])
+        for node in transitional.nodes:
+            if node.os == "windows":
+                self.assertEqual("1", node.labels["longhorn.io/test-containerd-major"])
+                self.assertEqual("1.7", node.labels["longhorn.io/test-containerd-line"])
 
     def test_full_matches_aws_worker_shape(self):
         topology = load_topology(TOPOLOGY, "full")

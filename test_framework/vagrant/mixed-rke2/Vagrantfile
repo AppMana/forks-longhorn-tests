@@ -1,6 +1,14 @@
 # frozen_string_literal: true
 
 require "json"
+require "digest"
+
+def stable_vm_uuid(name)
+  hex = Digest::SHA256.hexdigest("longhorn-test/#{name}")[0, 32]
+  hex[12] = "5"
+  hex[16] = ((hex[16].to_i(16) & 0x3) | 0x8).to_s(16)
+  [hex[0, 8], hex[8, 4], hex[12, 4], hex[16, 4], hex[20, 12]].join("-")
+end
 
 topology_path = ENV.fetch("LONGHORN_TEST_TOPOLOGY_FILE")
 run_dir = ENV.fetch("LONGHORN_TEST_RUN_DIR")
@@ -11,6 +19,7 @@ token_path = File.join(run_dir, "cluster-token")
 cluster_token = File.read(token_path).strip
 server = topology.fetch("nodes").find { |node| node.fetch("role") == "server" }
 raise "topology must have one server" unless server
+windows_kubelet = cluster.fetch("windows_kubelet", {})
 
 Vagrant.configure("2") do |config|
   config.vm.synced_folder ".", "/vagrant", disabled: true
@@ -19,6 +28,7 @@ Vagrant.configure("2") do |config|
 
   topology.fetch("nodes").each do |node|
     config.vm.define node.fetch("name") do |machine|
+      vm_uuid = stable_vm_uuid(node.fetch("name"))
       machine.vm.hostname = node.fetch("name")
       machine.vm.box = node.fetch("box")
       machine.vm.communicator = node.fetch("os") == "windows" ? "winrm" : "ssh"
@@ -43,6 +53,21 @@ Vagrant.configure("2") do |config|
 
       machine.vm.provider :libvirt do |libvirt|
         libvirt.qemu_use_session = false
+        # Expose deterministic firmware identity and keep the libvirt domain
+        # and SMBIOS UUID identical, as required by libvirt. The old-runtime
+        # profile separately pins the upstream kubelet registry UUID fix
+        # because Win32_ComputerSystemProduct is optional on QEMU guests.
+        libvirt.uuid = vm_uuid
+        libvirt.sysinfo = {
+          "system" => {
+            "manufacturer" => "Longhorn",
+            "product" => "Longhorn test VM",
+            "version" => "1",
+            "serial" => node.fetch("name"),
+            "uuid" => vm_uuid,
+            "family" => "Longhorn integration tests"
+          }
+        }
         libvirt.cpus = node.fetch("cpus")
         libvirt.memory = node.fetch("memory_mb")
         libvirt.cpu_mode = "host-passthrough"
@@ -68,14 +93,28 @@ Vagrant.configure("2") do |config|
       taints = node.fetch("taints", []).join(",")
       cnis = [cluster.dig("secondary_cni", "name"), cluster.fetch("cni")].compact.join(",")
       if node.fetch("os") == "windows"
+        windows_args = [
+          "-NodeName", node.fetch("name"),
+          "-NodeIP", node.fetch("data_ip"),
+          "-DataMac", node.fetch("mac"),
+          "-DataPrefixLength", data_prefix_length,
+          "-ServerIP", server.fetch("data_ip"),
+          "-ClusterToken", cluster_token,
+          "-Rke2Version", cluster.fetch("rke2_version"),
+          "-Filesystem", node.fetch("filesystem")
+        ]
+        windows_args += ["-Labels", labels] unless labels.empty?
+        windows_args += ["-Taints", taints] unless taints.empty?
+        unless windows_kubelet.empty?
+          windows_args += [
+            "-KubeletURL", windows_kubelet.fetch("url"),
+            "-KubeletSHA256", windows_kubelet.fetch("sha256"),
+            "-KubeletVersion", windows_kubelet.fetch("version")
+          ]
+        end
         machine.vm.provision "shell",
           path: "scripts/windows-agent.ps1",
-          args: [
-            node.fetch("name"), node.fetch("data_ip"), node.fetch("mac"), data_prefix_length,
-            server.fetch("data_ip"),
-            cluster_token, cluster.fetch("rke2_version"), node.fetch("filesystem"),
-            labels, taints
-          ],
+          args: windows_args,
           privileged: false,
           reboot: true
       else

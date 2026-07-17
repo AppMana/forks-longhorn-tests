@@ -106,6 +106,10 @@ def load_topology(path: Path, profile: str) -> Topology:
             node_labels.setdefault(
                 "longhorn.io/test-containerd-major", str(cluster["expected_containerd_major"])
             )
+        if os_name == "windows" and cluster.get("expected_containerd_line"):
+            node_labels.setdefault(
+                "longhorn.io/test-containerd-line", str(cluster["expected_containerd_line"])
+            )
         node = Node(
             name=str(merged["name"]),
             os=os_name,

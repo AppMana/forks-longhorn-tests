@@ -8,6 +8,12 @@ Prerequisites are QEMU/KVM, system libvirt, Open vSwitch, `tc`, Vagrant 2.4.9,
 vagrant-libvirt 0.12.2, and the private `longhorn/windows-server-2022` box. The
 source for that box is in `test_framework/packer/windows-server-2022`; neither
 the Microsoft ISO nor the generated box may be committed or published.
+The Packer build seeds SMBIOS before Windows installation and the shared
+Vagrant builder assigns a deterministic per-node domain/SMBIOS UUID. Because
+QEMU guests may still omit `Win32_ComputerSystemProduct`, the containerd 1.6
+profile pins a Windows kubelet containing upstream commit `26ef4e42e5c8`, which
+reads the system UUID from `HKLM\SYSTEM\HardwareConfig`. The containerd 1.7
+profile uses Kubernetes v1.30.14, where that lookup is already upstream.
 
 ```shell
 python3 test_framework/cluster/clusterctl.py --provider libvirt --profile windows-gate up

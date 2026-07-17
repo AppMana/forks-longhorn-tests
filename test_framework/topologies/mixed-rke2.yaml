@@ -8,6 +8,7 @@ cluster:
     ipam: whereabouts
   rke2_version: v1.34.2+rke2r1
   expected_containerd_major: 2
+  expected_containerd_line: "2"
   data_network:
     bridge: lh-e2e-data
     cidr: 172.28.0.0/24
@@ -128,6 +129,29 @@ nodes:
         tap: lhc1-winnt0
         labels:
           node-role.longhorn.io/worker: "true"
+      - name: server-containerd17
+        os: linux
+        role: server
+        cpus: 2
+        memory_mb: 6144
+        data_ip: 172.30.0.10
+        management_ip: 192.168.121.70
+        mac: "52:54:00:30:00:10"
+        tap: lhc17-server0
+        labels:
+          node-role.longhorn.io/worker: "true"
+      - name: windows-containerd17
+        os: windows
+        role: agent
+        filesystem: ntfs
+        cpus: 3
+        memory_mb: 8192
+        data_ip: 172.30.0.30
+        management_ip: 192.168.121.80
+        mac: "52:54:00:30:00:30"
+        tap: lhc17-winnt0
+        labels:
+          node-role.longhorn.io/worker: "true"
 
 profiles:
   linux-smoke:
@@ -150,12 +174,37 @@ profiles:
       # mount layout that exposes projected volumes only below the sandbox.
       rke2_version: v1.25.6+rke2r1
       expected_containerd_major: 1
+      expected_containerd_line: "1.6"
+      windows_kubelet:
+        # Kubernetes upstream commit 26ef4e42e5c8 backported onto v1.25.6.
+        # It replaces the optional Win32_ComputerSystemProduct lookup with
+        # HKLM\SYSTEM\HardwareConfig\LastConfig and changes no CRI behavior.
+        url: https://github.com/AppMana/forks-kubernetes/releases/download/windows-containerd1-v1.25.6/kubelet.exe
+        sha256: 942b0e2d0e38a260129fb689756807ecc23d4c50df976f50a4bf13b8d999a273
+        version: v1.25.6
       data_network:
         bridge: lh-e2e-data1
         cidr: 172.29.0.0/24
         pod_interface: eth2
         pod_range_start: 172.29.0.128
         pod_range_end: 172.29.0.254
+        network_attachment: longhorn-storage
+  windows-containerd17:
+    node_names:
+      - server-containerd17
+      - windows-containerd17
+    cluster:
+      # Kubernetes v1.30.14 includes the registry-based Windows UUID lookup.
+      # RKE2 r2 pins the final 1.7 line, containerd v1.7.27-k3s1.
+      rke2_version: v1.30.14+rke2r2
+      expected_containerd_major: 1
+      expected_containerd_line: "1.7"
+      data_network:
+        bridge: lh-e2e-data17
+        cidr: 172.30.0.0/24
+        pod_interface: eth2
+        pod_range_start: 172.30.0.128
+        pod_range_end: 172.30.0.254
         network_attachment: longhorn-storage
   windows-containerd2:
     extends: windows-gate

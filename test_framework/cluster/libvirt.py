@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -28,8 +29,13 @@ class LibvirtProvider(Provider):
         })
         return environment
 
+    def _vagrant_command(self) -> list[str]:
+        # The system-libvirt wrapper preserves the invoking user's Vagrant
+        # home while elevating only actions that open qemu:///system.
+        return shlex.split(os.environ.get("VAGRANT_CMD", "vagrant"))
+
     def _vagrant(self, *args: str) -> None:
-        command = ["vagrant", *args]
+        command = [*self._vagrant_command(), *args]
         print("+ " + " ".join(command), flush=True)
         try:
             subprocess.run(command, cwd=self.vagrant_dir, env=self._vagrant_environment(), check=True)
@@ -61,7 +67,7 @@ class LibvirtProvider(Provider):
 
     def _running_vagrant_nodes(self) -> set[str]:
         completed = subprocess.run(
-            ["vagrant", "status", "--machine-readable"],
+            [*self._vagrant_command(), "status", "--machine-readable"],
             cwd=self.vagrant_dir,
             env=self._vagrant_environment(),
             check=False,
@@ -114,7 +120,10 @@ class LibvirtProvider(Provider):
         server = self.topology.server
         destination = self.run_dir / "kubeconfig.yaml"
         kubeconfig = run(
-            ["vagrant", "ssh", server.name, "-c", "sudo cat /etc/rancher/rke2/rke2.yaml"],
+            [
+                *self._vagrant_command(), "ssh", server.name, "-c",
+                "sudo cat /etc/rancher/rke2/rke2.yaml",
+            ],
             cwd=self.vagrant_dir,
             capture=True,
             environment=self._vagrant_environment(),
@@ -152,8 +161,12 @@ class LibvirtProvider(Provider):
         raise CommandError(f"nodes did not become Ready within {timeout_seconds}s: {last_detail}")
 
     def _validate_containerd_generation(self) -> None:
-        expected = self.topology.cluster.get("expected_containerd_major")
-        if expected is None:
+        expected = str(
+            self.topology.cluster.get("expected_containerd_line")
+            or self.topology.cluster.get("expected_containerd_major")
+            or ""
+        )
+        if not expected:
             return
         kubeconfig = self.run_dir / "kubeconfig.yaml"
         document = json.loads(run([
@@ -167,8 +180,8 @@ class LibvirtProvider(Provider):
             name = item["metadata"]["name"]
             version = item.get("status", {}).get("nodeInfo", {}).get("containerRuntimeVersion", "")
             prefix = "containerd://"
-            major = version[len(prefix):].split(".", 1)[0] if version.startswith(prefix) else ""
-            if major != str(expected):
+            runtime = version[len(prefix):] if version.startswith(prefix) else ""
+            if runtime != expected and not runtime.startswith(expected + "."):
                 mismatches.append(f"{name}={version or '<missing>'}")
         if mismatches:
             raise CommandError(

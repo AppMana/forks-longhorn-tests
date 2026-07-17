@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Vagrant against system libvirt without switching Vagrant HOME."""
+"""Run scoped Vagrant commands against system libvirt without switching HOME."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ import subprocess
 import sys
 
 
-ALLOWED_ACTIONS = {"status", "up", "halt", "reload", "snapshot"}
+ALLOWED_ACTIONS = {"status", "up", "halt", "reload", "snapshot", "ssh"}
 
 
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] not in ALLOWED_ACTIONS:
-        raise SystemExit("vagrant_system.py only supports E2E host-control actions")
+        raise SystemExit("vagrant_system.py only supports scoped E2E libvirt actions")
 
     forwarded = {
         name: os.environ[name]

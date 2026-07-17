@@ -8,7 +8,10 @@ param(
     [Parameter(Mandatory = $true)][string]$Rke2Version,
     [Parameter(Mandatory = $true)][ValidateSet('ntfs', 'refs')][string]$Filesystem,
     [string]$Labels = '',
-    [string]$Taints = ''
+    [string]$Taints = '',
+    [string]$KubeletURL = '',
+    [string]$KubeletSHA256 = '',
+    [string]$KubeletVersion = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,8 +22,15 @@ New-Item -ItemType Directory -Path $bootstrapRoot -Force | Out-Null
 if (Test-Path $marker) { exit 0 }
 
 $normalizedDataMac = $DataMac.Replace(':', '').Replace('-', '').ToUpperInvariant()
-$dataAdapter = Get-NetAdapter | Where-Object {
+$dataAdapters = Get-NetAdapter | Where-Object {
     $_.MacAddress.Replace('-', '').ToUpperInvariant() -eq $normalizedDataMac
+}
+# After RKE2 creates the HNS data-network vSwitch, Windows exposes both the
+# physical VirtIO NIC and its vEthernet NIC with the same MAC. Only the latter
+# owns the IPv4 interface. Selecting the first MAC match makes re-provisioning
+# depend on CIM enumeration order and can target the unbound physical NIC.
+$dataAdapter = $dataAdapters | Where-Object {
+    $null -ne (Get-NetIPInterface -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue)
 } | Select-Object -First 1
 if ($null -eq $dataAdapter) { throw "Data adapter $DataMac did not appear" }
 Set-NetIPInterface -InterfaceIndex $dataAdapter.ifIndex -AddressFamily IPv4 -Dhcp Disabled
@@ -58,7 +68,8 @@ Start-Service -Name MSiSCSI
 # HostProcess pods use the host network. Permit Longhorn's fixed control ports
 # and the same per-process range used by the Linux instance manager, restricted
 # to the isolated cluster-data network.
-if (-not (Get-NetFirewallRule -DisplayName 'Longhorn cluster data' -ErrorAction SilentlyContinue)) {
+$longhornFirewallRule = Get-NetFirewallRule -DisplayName 'Longhorn cluster data' -ErrorAction SilentlyContinue
+if (-not $longhornFirewallRule) {
     New-NetFirewallRule `
         -DisplayName 'Longhorn cluster data' `
         -Direction Inbound `
@@ -66,6 +77,10 @@ if (-not (Get-NetFirewallRule -DisplayName 'Longhorn cluster data' -ErrorAction 
         -Protocol TCP `
         -LocalPort 3260,8500-8501,9500,10000-20000 `
         -InterfaceAlias $dataAdapter.Name | Out-Null
+} else {
+    # The data adapter changes from the physical NIC to the HNS vEthernet NIC
+    # after the first RKE2 start. Keep the rule attached to the active endpoint.
+    $longhornFirewallRule | Set-NetFirewallRule -InterfaceAlias $dataAdapter.Name | Out-Null
 }
 Rename-Computer -NewName $NodeName -Force -ErrorAction SilentlyContinue
 
@@ -107,6 +122,11 @@ if ($Taints) {
     $config += 'node-taint:'
     $Taints.Split(',') | ForEach-Object { $config += "  - `"$_`"" }
 }
+if ($KubeletURL) {
+    # Forward slashes are native Win32 path separators too and avoid YAML
+    # backslash escaping entirely.
+    $config += 'kubelet-path: C:/LonghornTest/kubelet.exe'
+}
 $config | Set-Content -Path (Join-Path $configDirectory 'config.yaml') -Encoding ascii
 
 $machinePath = [Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::Machine)
@@ -123,6 +143,29 @@ if (-not (Test-Path $rke2Path)) {
     Invoke-WithRetry { Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/rancher/rke2/master/install.ps1' -OutFile $installer }
     & $installer -Method Tar -Type Agent -Version $Rke2Version
     if ($LASTEXITCODE -ne 0) { throw 'RKE2 installation failed' }
+}
+
+if ($KubeletURL) {
+    if (-not $KubeletSHA256 -or -not $KubeletVersion) {
+        throw 'A Windows kubelet override requires url, sha256, and version'
+    }
+    $kubeletOverride = Join-Path $bootstrapRoot 'kubelet.exe'
+    $download = $true
+    if (Test-Path $kubeletOverride) {
+        $download = (Get-FileHash $kubeletOverride -Algorithm SHA256).Hash.ToLowerInvariant() -ne $KubeletSHA256.ToLowerInvariant()
+    }
+    if ($download) {
+        Write-Host "Downloading pinned Windows kubelet override $KubeletVersion"
+        Invoke-WithRetry { Invoke-WebRequest -UseBasicParsing -Uri $KubeletURL -OutFile $kubeletOverride }
+    }
+    $actualKubeletSHA256 = (Get-FileHash $kubeletOverride -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualKubeletSHA256 -ne $KubeletSHA256.ToLowerInvariant()) {
+        throw "Windows kubelet checksum mismatch: got $actualKubeletSHA256, expected $KubeletSHA256"
+    }
+    $actualKubeletVersion = & $kubeletOverride --version
+    if ($LASTEXITCODE -ne 0 -or $actualKubeletVersion -ne "Kubernetes $KubeletVersion") {
+        throw "Windows kubelet version mismatch: got '$actualKubeletVersion', expected 'Kubernetes $KubeletVersion'"
+    }
 }
 
 Write-Host "Waiting for the RKE2 supervisor at $ServerIP"
