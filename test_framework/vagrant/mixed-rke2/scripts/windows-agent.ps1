@@ -54,6 +54,19 @@ if (-not $feature.Installed) {
 
 Set-Service -Name MSiSCSI -StartupType Automatic
 Start-Service -Name MSiSCSI
+
+# HostProcess pods use the host network. Permit Longhorn's fixed control ports
+# and the same per-process range used by the Linux instance manager, restricted
+# to the isolated cluster-data network.
+if (-not (Get-NetFirewallRule -DisplayName 'Longhorn cluster data' -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule `
+        -DisplayName 'Longhorn cluster data' `
+        -Direction Inbound `
+        -Action Allow `
+        -Protocol TCP `
+        -LocalPort 3260,8500-8501,9500,10000-20000 `
+        -InterfaceAlias $dataAdapter.Name | Out-Null
+}
 Rename-Computer -NewName $NodeName -Force -ErrorAction SilentlyContinue
 
 $dataMarker = Join-Path $bootstrapRoot 'data-ready'
