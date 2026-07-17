@@ -41,12 +41,16 @@ Rename-Computer -NewName $NodeName -Force -ErrorAction SilentlyContinue
 
 $dataMarker = Join-Path $bootstrapRoot 'data-ready'
 if (-not (Test-Path $dataMarker)) {
+    Write-Host "Waiting for the $Filesystem Longhorn data disk"
     $disk = $null
     for ($attempt = 1; $attempt -le 60 -and $null -eq $disk; $attempt++) {
         $disk = Get-Disk | Where-Object { -not $_.IsBoot -and -not $_.IsSystem -and $_.PartitionStyle -eq 'RAW' } | Select-Object -First 1
         if ($null -eq $disk) { Start-Sleep -Seconds 2 }
     }
     if ($null -eq $disk) { throw 'Longhorn data disk did not appear' }
+    if ($disk.IsOffline) { Set-Disk -Number $disk.Number -IsOffline $false }
+    if ($disk.IsReadOnly) { Set-Disk -Number $disk.Number -IsReadOnly $false }
+    $disk = Get-Disk -Number $disk.Number
     $partition = $disk | Initialize-Disk -PartitionStyle GPT -PassThru | New-Partition -UseMaximumSize -AssignDriveLetter
     $partition | Format-Volume -FileSystem $Filesystem -NewFileSystemLabel LONGHORN -Confirm:$false -Force | Out-Null
     $mountPath = 'C:\var\lib\longhorn\'
@@ -84,12 +88,14 @@ $env:Path = $machinePath
 
 $rke2Path = 'C:\usr\local\bin\rke2.exe'
 if (-not (Test-Path $rke2Path)) {
+    Write-Host "Installing RKE2 $Rke2Version"
     $installer = Join-Path $bootstrapRoot 'install-rke2.ps1'
     Invoke-WithRetry { Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/rancher/rke2/master/install.ps1' -OutFile $installer }
     & $installer -Method Tar -Type Agent -Version $Rke2Version
     if ($LASTEXITCODE -ne 0) { throw 'RKE2 installation failed' }
 }
 
+Write-Host "Waiting for the RKE2 supervisor at $ServerIP"
 Invoke-WithRetry {
     & curl.exe --fail --silent --show-error --insecure "https://$ServerIP`:9345/ping" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'RKE2 supervisor is not ready' }
@@ -101,3 +107,4 @@ if (-not (Get-Service -Name rke2 -ErrorAction SilentlyContinue)) {
 Set-Service -Name rke2 -StartupType Automatic
 Start-Service -Name rke2
 New-Item -ItemType File -Path $marker -Force | Out-Null
+Write-Host "Windows RKE2 agent provisioning complete"
