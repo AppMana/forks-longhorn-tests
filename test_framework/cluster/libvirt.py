@@ -17,7 +17,10 @@ from .provider import CommandError, Provider, run
 class LibvirtProvider(Provider):
     @property
     def vagrant_dir(self) -> Path:
-        return self.repository / "test_framework" / "vagrant" / "mixed-rke2"
+        fixture = str(self.topology.cluster.get("vagrant_fixture", "mixed-rke2"))
+        if not fixture or Path(fixture).name != fixture:
+            raise CommandError(f"invalid Vagrant fixture name {fixture!r}")
+        return self.repository / "test_framework" / "vagrant" / fixture
 
     @property
     def network_cli(self) -> Path:
@@ -274,7 +277,7 @@ exit 1
                 break
             time.sleep(5)
         else:
-            raise CommandError("RKE2 Multus NetworkAttachmentDefinition CRD did not become ready")
+            raise CommandError("Multus NetworkAttachmentDefinition CRD did not become ready")
 
         manifest = {
             "apiVersion": "k8s.cni.cncf.io/v1",

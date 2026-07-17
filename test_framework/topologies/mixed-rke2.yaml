@@ -2,6 +2,7 @@ schema_version: 1
 cluster:
   name: longhorn-windows
   kubernetes: rke2
+  vagrant_fixture: mixed-rke2
   cni: calico
   secondary_cni:
     name: multus
