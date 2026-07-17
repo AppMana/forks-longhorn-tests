@@ -10,8 +10,13 @@ Create a local variables file outside the repository:
 ```hcl
 iso_url            = "/home/administrator/Documents/.longhorn-test/iso/SERVER_EVAL_x64FRE_en-us.iso"
 iso_checksum       = "sha256:<official-digest>"
+http_directory     = "/home/administrator/Documents/.longhorn-test/iso"
 virtio_iso_checksum = "sha256:<pinned-virtio-digest>"
 ```
+
+`http_directory` must contain the exact file `virtio-win.iso`. Packer serves
+that local, checksum-pinned artifact directly to the isolated build guest; the
+guest never follows Fedora's moving `stable-virtio` URL.
 
 Then build and register it:
 

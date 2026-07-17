@@ -22,14 +22,14 @@ variable "iso_checksum" {
   description = "SHA-256 checksum in Packer sha256:<digest> form."
 }
 
-variable "virtio_iso_url" {
-  type    = string
-  default = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
-}
-
 variable "virtio_iso_checksum" {
   type        = string
   description = "Pinned checksum for the selected virtio-win ISO."
+}
+
+variable "http_directory" {
+  type        = string
+  description = "Local directory containing the pinned virtio-win.iso served only to the build guest."
 }
 
 variable "output_directory" {
@@ -64,6 +64,8 @@ source "qemu" "windows_server_2022" {
   ]
   cd_label = "cidata"
 
+  http_directory = var.http_directory
+
   communicator   = "winrm"
   winrm_username = "vagrant"
   winrm_password = "vagrant"
@@ -82,7 +84,6 @@ build {
     elevated_user     = "vagrant"
     elevated_password = "vagrant"
     environment_vars = [
-      "VIRTIO_ISO_URL=${var.virtio_iso_url}",
       "VIRTIO_ISO_CHECKSUM=${trimprefix(var.virtio_iso_checksum, "sha256:")}",
     ]
     scripts = [

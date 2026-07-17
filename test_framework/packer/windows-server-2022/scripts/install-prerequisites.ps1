@@ -2,7 +2,10 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $virtioImage = 'C:\Windows\Temp\virtio-win.iso'
-Invoke-WebRequest -UseBasicParsing -Uri $env:VIRTIO_ISO_URL -OutFile $virtioImage
+if (-not $env:PACKER_HTTP_ADDR) {
+    throw 'PACKER_HTTP_ADDR is unavailable; configure QEMU http_directory with the pinned virtio-win.iso'
+}
+Invoke-WebRequest -UseBasicParsing -Uri "http://$($env:PACKER_HTTP_ADDR)/virtio-win.iso" -OutFile $virtioImage
 $actualChecksum = (Get-FileHash -Algorithm SHA256 -Path $virtioImage).Hash
 if ($actualChecksum -ne $env:VIRTIO_ISO_CHECKSUM) {
     throw "virtio-win ISO checksum mismatch: expected $($env:VIRTIO_ISO_CHECKSUM), got $actualChecksum"
