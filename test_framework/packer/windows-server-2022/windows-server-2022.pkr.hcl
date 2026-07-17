@@ -73,11 +73,11 @@ source "qemu" "windows_server_2022" {
   boot_wait      = "5s"
   boot_command   = ["<spacebar>"]
 
-  # Run generalization as the builder shutdown command. QEMU waits for the VM
-  # process to exit after the WinRM invocation returns, so Sysprep can tear down
-  # WinRM without stranding a provisioner that is waiting on its own process.
-  shutdown_command = "C:\\Windows\\System32\\Sysprep\\Sysprep.exe /generalize /oobe /shutdown /quiet"
-  shutdown_timeout = "30m"
+  # Launch generalization asynchronously as the builder shutdown command. The
+  # WinRM request must return before Sysprep tears WinRM down; Packer can then
+  # monitor QEMU directly until Windows has finished and powered itself off.
+  shutdown_command = "powershell.exe -NoProfile -NonInteractive -Command \"Start-Process -FilePath 'C:\\Windows\\System32\\Sysprep\\Sysprep.exe' -ArgumentList '/generalize','/oobe','/shutdown','/quiet'\""
+  shutdown_timeout = "1h"
 }
 
 build {
