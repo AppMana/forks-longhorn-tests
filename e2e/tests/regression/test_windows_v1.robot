@@ -10,6 +10,7 @@ Resource    ../../keywords/persistentvolumeclaim.resource
 Resource    ../../keywords/deployment.resource
 Resource    ../../keywords/workload.resource
 Resource    ../../keywords/engine_image.resource
+Resource    ../../keywords/setting.resource
 Resource    ../../keywords/replica.resource
 Resource    ../../keywords/node.resource
 
@@ -46,20 +47,27 @@ Test Windows Engine Live Upgrade Preserves Continuous IO
     Require Windows Engine Topology
     ${windows_node}=    Find Topology Node    windows    ntfs
     ${selector}=    Set Variable    {"kubernetes.io/hostname":"${windows_node}"}
+    ${target_engine_image}=    Get default engine image name
     Given Create compatible Windows engine image
-    And Create storageclass windows-upgrade with    numberOfReplicas=2    dataEngine=v1    fsType=ntfs
-    And Create persistentvolumeclaim windows-upgrade    volume_type=RWO    sc_name=windows-upgrade
-    And Create deployment windows-upgrade with persistentvolumeclaim windows-upgrade    operating_system=windows    node_selector=${selector}
+    And Setting default-engine-image is set to ${compatible_engine_image_name}
+    TRY
+        And Create storageclass windows-upgrade with    numberOfReplicas=2    dataEngine=v1    fsType=ntfs
+        And Create persistentvolumeclaim windows-upgrade    volume_type=RWO    sc_name=windows-upgrade
+        And Create deployment windows-upgrade with persistentvolumeclaim windows-upgrade    operating_system=windows    node_selector=${selector}
+    FINALLY
+        And Setting default-engine-image is set to ${target_engine_image}
+    END
     And Get deployment windows-upgrade pod name
     And Write 16 MB data to file checkpoint.bin in deployment windows-upgrade
-    And Keep writing data to pod of deployment windows-upgrade    4
     ${deployment_name}=    Generate Name With Suffix    deployment    windows-upgrade
     ${volume_name}=    Get Workload Volume Name    ${deployment_name}
+    And Wait For Engine Image Upgrade Completed    ${volume_name}    ${compatible_engine_image_name}
+    And Keep writing data to pod of deployment windows-upgrade    4
     ${iscsi_state}=    Capture Windows Iscsi State For Workload    ${deployment_name}
     And Start Windows Engine Overlap Probe For Workload    ${deployment_name}
     TRY
-        When Upgrade Engine Image    ${volume_name}    ${compatible_engine_image_name}
-        And Wait For Engine Image Upgrade Completed    ${volume_name}    ${compatible_engine_image_name}
+        When Upgrade Engine Image    ${volume_name}    ${target_engine_image}
+        And Wait For Engine Image Upgrade Completed    ${volume_name}    ${target_engine_image}
         Then Assert Windows Engine Overlap Probe Succeeded
         And Assert Windows Iscsi State For Workload Is Unchanged    ${deployment_name}    ${iscsi_state}
         Then Check deployment windows-upgrade data in file checkpoint.bin is intact

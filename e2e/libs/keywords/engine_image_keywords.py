@@ -12,6 +12,9 @@ class engine_image_keywords:
     def deploy_compatible_windows_engine_image(self):
         return self.engine_image.deploy_compatible_windows_engine_image()
 
+    def fetch_default_engine_image_name(self):
+        return self.engine_image.get_default_engine_image().image
+
     def wait_for_engine_image_deployed(self, image_name):
         return self.engine_image.wait_for_engine_image_deployed(image_name)
 

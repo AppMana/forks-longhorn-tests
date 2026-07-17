@@ -14,6 +14,10 @@ Create compatible Windows engine image
     ${compatible_engine_image_name} =    deploy_compatible_windows_engine_image
     Set Test Variable    ${compatible_engine_image_name}
 
+Get default engine image name
+    ${default_engine_image_name} =    fetch_default_engine_image_name
+    RETURN    ${default_engine_image_name}
+
 Wait to engine image ${custom_engine_image} to be deployed
     wait_for_engine_image_deployed    ${custom_engine_image}
 
