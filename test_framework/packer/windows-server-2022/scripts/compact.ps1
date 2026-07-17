@@ -4,7 +4,11 @@ Remove-Item -Recurse -Force C:\Users\vagrant\AppData\Local\Temp\* -ErrorAction S
 Optimize-Volume -DriveLetter C -ReTrim -Verbose -ErrorAction SilentlyContinue
 # Leave shutdown to Packer. If Sysprep powers the guest off itself, Packer treats
 # the vanished WinRM endpoint as a failed shutdown and discards the valid image.
-& C:\Windows\System32\Sysprep\Sysprep.exe /generalize /oobe /quit /quiet
-if ($LASTEXITCODE -ne 0) {
-    throw "Sysprep failed with exit code $LASTEXITCODE"
+$sysprep = Start-Process `
+    -FilePath C:\Windows\System32\Sysprep\Sysprep.exe `
+    -ArgumentList '/generalize', '/oobe', '/quit', '/quiet' `
+    -Wait `
+    -PassThru
+if ($sysprep.ExitCode -ne 0) {
+    throw "Sysprep failed with exit code $($sysprep.ExitCode)"
 }
