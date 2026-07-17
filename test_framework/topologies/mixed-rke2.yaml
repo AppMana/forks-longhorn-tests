@@ -7,6 +7,7 @@ cluster:
     name: multus
     ipam: whereabouts
   rke2_version: v1.34.2+rke2r1
+  expected_containerd_major: 2
   data_network:
     bridge: lh-e2e-data
     cidr: 172.28.0.0/24
@@ -117,6 +118,15 @@ profiles:
       - windows-ntfs-0
       - windows-ntfs-1
       - windows-refs-0
+  windows-containerd1:
+    extends: windows-gate
+    cluster:
+      # RKE2 v1.25.6 embeds containerd 1.6.15. This is the last HostProcess
+      # mount layout that exposes projected volumes only below the sandbox.
+      rke2_version: v1.25.6+rke2r1
+      expected_containerd_major: 1
+  windows-containerd2:
+    extends: windows-gate
   full:
     node_names:
       - server-0

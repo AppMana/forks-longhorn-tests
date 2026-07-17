@@ -59,7 +59,21 @@ def load_topology(path: Path, profile: str) -> Topology:
     profiles = raw.get("profiles", {})
     if profile not in profiles:
         raise ValueError(f"unknown topology profile {profile!r}")
-    selected = copy.deepcopy(profiles[profile])
+    def resolve_profile(name: str, resolving: tuple[str, ...] = ()) -> dict[str, Any]:
+        if name in resolving:
+            raise ValueError(f"profile inheritance cycle: {' -> '.join((*resolving, name))}")
+        selected_profile = copy.deepcopy(profiles[name])
+        base_name = selected_profile.pop("extends", None)
+        if not base_name:
+            return selected_profile
+        if base_name not in profiles:
+            raise ValueError(f"profile {name!r} extends unknown profile {base_name!r}")
+        base = resolve_profile(base_name, (*resolving, name))
+        merged = {**base, **selected_profile}
+        merged["cluster"] = {**base.get("cluster", {}), **selected_profile.get("cluster", {})}
+        return merged
+
+    selected = resolve_profile(profile)
     canonical_nodes = {str(node["name"]): node for node in raw.get("nodes", [])}
     node_names = selected.get("node_names")
     if node_names is not None:
@@ -68,14 +82,10 @@ def load_topology(path: Path, profile: str) -> Topology:
             raise ValueError(f"profile {profile!r} references unknown nodes: {', '.join(missing)}")
         node_specs = [copy.deepcopy(canonical_nodes[name]) for name in node_names]
     else:
-        inherited: list[dict[str, Any]] = []
-        if base_name := selected.get("extends"):
-            if base_name not in profiles:
-                raise ValueError(f"profile {profile!r} extends unknown profile {base_name!r}")
-            inherited = copy.deepcopy(profiles[base_name].get("nodes", []))
-        node_specs = inherited + selected.get("nodes", [])
+        node_specs = selected.get("nodes", [])
 
     defaults = raw.get("defaults", {})
+    cluster = {**copy.deepcopy(raw["cluster"]), **selected.get("cluster", {})}
     nodes: list[Node] = []
     names: set[str] = set()
     addresses: set[str] = set()
@@ -92,6 +102,10 @@ def load_topology(path: Path, profile: str) -> Topology:
         node_labels = {str(k): str(v) for k, v in merged.get("labels", {}).items()}
         if filesystem:
             node_labels.setdefault("longhorn.io/test-filesystem", filesystem)
+        if os_name == "windows" and cluster.get("expected_containerd_major"):
+            node_labels.setdefault(
+                "longhorn.io/test-containerd-major", str(cluster["expected_containerd_major"])
+            )
         node = Node(
             name=str(merged["name"]),
             os=os_name,
@@ -125,7 +139,7 @@ def load_topology(path: Path, profile: str) -> Topology:
         taps.add(node.tap)
         nodes.append(node)
 
-    topology = Topology(int(raw["schema_version"]), copy.deepcopy(raw["cluster"]), profile, tuple(nodes))
+    topology = Topology(int(raw["schema_version"]), cluster, profile, tuple(nodes))
     topology.server
     data_network = ipaddress.ip_network(topology.cluster["data_network"]["cidr"])
     management_network = ipaddress.ip_network(topology.cluster["management_network"]["cidr"])

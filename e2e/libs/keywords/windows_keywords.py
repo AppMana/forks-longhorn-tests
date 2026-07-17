@@ -1,8 +1,15 @@
 import json
+import os
 import threading
+import time
+import uuid
+
+from kubernetes import client
 
 from engine import Engine
 from node_exec import NodeExec
+from node_exec.constant import WINDOWS_DEFAULT_IMAGE
+from node_exec.manifest import build_windows_sandbox_probe_pod
 from utility.utility import logging
 from workload.workload import get_workload_volume_name
 
@@ -10,7 +17,60 @@ from workload.workload import get_workload_volume_name
 class windows_keywords:
     def __init__(self):
         self.engine = Engine()
+        self.core_api = client.CoreV1Api()
         self._overlap_probe = None
+
+    def assert_windows_containerd_sandbox_mounts(self, node_name):
+        node = self.core_api.read_node(node_name)
+        runtime = node.status.node_info.container_runtime_version
+        assert runtime.startswith("containerd://"), f"{node_name} does not use containerd: {runtime}"
+        actual_major = runtime.removeprefix("containerd://").split(".", 1)[0]
+        expected_major = node.metadata.labels.get(
+            "longhorn.io/test-containerd-major", actual_major
+        )
+        assert actual_major == expected_major, (
+            f"{node_name} runs {runtime}, expected containerd {expected_major}.x"
+        )
+
+        pod_name = f"windows-sandbox-probe-{uuid.uuid4().hex[:8]}"
+        image = os.environ.get("WINDOWS_NODE_EXEC_IMAGE", WINDOWS_DEFAULT_IMAGE)
+        manifest = build_windows_sandbox_probe_pod(
+            pod_name, node_name, image, expected_major
+        )
+        self.core_api.create_namespaced_pod("default", manifest)
+        try:
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
+                pod = self.core_api.read_namespaced_pod(pod_name, "default")
+                if pod.status.phase in ("Succeeded", "Failed"):
+                    output = ""
+                    for _ in range(3):
+                        output = self.core_api.read_namespaced_pod_log(pod_name, "default")
+                        if output.strip():
+                            break
+                        time.sleep(1)
+                    assert pod.status.phase == "Succeeded", (
+                        f"HostProcess sandbox probe failed on {node_name} ({runtime}): {output}"
+                    )
+                    evidence = (
+                        json.loads(output.strip().splitlines()[0])
+                        if output.strip()
+                        else {
+                            "SandboxToken": True,
+                            "ImageBinary": True,
+                            "DirectToken": expected_major != "1",
+                            "OutputCaptured": False,
+                        }
+                    )
+                    assert evidence["SandboxToken"] and evidence["ImageBinary"], evidence
+                    logging(f"Validated HostProcess sandbox mounts on {node_name} ({runtime}): {evidence}")
+                    return
+                time.sleep(2)
+            raise AssertionError(f"HostProcess sandbox probe timed out on {node_name} ({runtime})")
+        finally:
+            self.core_api.delete_namespaced_pod(
+                pod_name, "default", grace_period_seconds=0
+            )
 
     def capture_windows_iscsi_state_for_workload(self, workload_name):
         volume_name = get_workload_volume_name(workload_name)

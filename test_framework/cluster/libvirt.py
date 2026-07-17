@@ -89,6 +89,7 @@ class LibvirtProvider(Provider):
         self._vagrant("up", "--provider=libvirt", "--parallel")
         self._export_kubeconfig()
         self._wait_for_nodes()
+        self._validate_containerd_generation()
         self._configure_storage_network()
 
     def _require_local_windows_boxes(self) -> None:
@@ -149,6 +150,31 @@ class LibvirtProvider(Provider):
                 last_detail = completed.stderr.strip() or completed.stdout.strip()
             time.sleep(5)
         raise CommandError(f"nodes did not become Ready within {timeout_seconds}s: {last_detail}")
+
+    def _validate_containerd_generation(self) -> None:
+        expected = self.topology.cluster.get("expected_containerd_major")
+        if expected is None:
+            return
+        kubeconfig = self.run_dir / "kubeconfig.yaml"
+        document = json.loads(run([
+            "kubectl", "--kubeconfig", str(kubeconfig), "get", "nodes", "-o", "json"
+        ], capture=True))
+        mismatches: list[str] = []
+        for item in document.get("items", []):
+            labels = item["metadata"].get("labels", {})
+            if labels.get("kubernetes.io/os") != "windows":
+                continue
+            name = item["metadata"]["name"]
+            version = item.get("status", {}).get("nodeInfo", {}).get("containerRuntimeVersion", "")
+            prefix = "containerd://"
+            major = version[len(prefix):].split(".", 1)[0] if version.startswith(prefix) else ""
+            if major != str(expected):
+                mismatches.append(f"{name}={version or '<missing>'}")
+        if mismatches:
+            raise CommandError(
+                f"profile requires containerd {expected}.x on Windows; observed {', '.join(mismatches)}. "
+                "Destroy the other runtime profile before provisioning this one."
+            )
 
     def _configure_storage_network(self, timeout_seconds: int = 600) -> None:
         secondary = self.topology.cluster.get("secondary_cni", {})

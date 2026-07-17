@@ -18,6 +18,12 @@ Test Setup       Set Up Windows Test Environment
 Test Teardown    Cleanup test resources
 
 *** Test Cases ***
+Test Windows HostProcess Sandbox Mount Compatibility
+    [Tags]    coretest    containerd    hostprocess
+    Require Windows Engine Topology
+    ${windows_node}=    Find Topology Node    windows    ntfs
+    Assert Windows Containerd Sandbox Mounts    ${windows_node}
+
 Test Windows NTFS RWO Volume
     [Tags]    coretest    rwo    ntfs
     Require Windows Engine Topology

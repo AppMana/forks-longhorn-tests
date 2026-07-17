@@ -27,6 +27,21 @@ class TopologyTest(unittest.TestCase):
             ],
         )
 
+    def test_containerd_profiles_reuse_nodes_and_override_only_cluster_version(self):
+        current = load_topology(TOPOLOGY, "windows-containerd2")
+        legacy = load_topology(TOPOLOGY, "windows-containerd1")
+        self.assertEqual([node.name for node in current.nodes], [node.name for node in legacy.nodes])
+        self.assertEqual("v1.34.2+rke2r1", current.cluster["rke2_version"])
+        self.assertEqual(2, current.cluster["expected_containerd_major"])
+        self.assertEqual("v1.25.6+rke2r1", legacy.cluster["rke2_version"])
+        self.assertEqual(1, legacy.cluster["expected_containerd_major"])
+        for node in current.nodes:
+            if node.os == "windows":
+                self.assertEqual("2", node.labels["longhorn.io/test-containerd-major"])
+        for node in legacy.nodes:
+            if node.os == "windows":
+                self.assertEqual("1", node.labels["longhorn.io/test-containerd-major"])
+
     def test_full_matches_aws_worker_shape(self):
         topology = load_topology(TOPOLOGY, "full")
         workers = [node for node in topology.nodes if node.role == "agent"]
