@@ -102,14 +102,6 @@ def load_topology(path: Path, profile: str) -> Topology:
         node_labels = {str(k): str(v) for k, v in merged.get("labels", {}).items()}
         if filesystem:
             node_labels.setdefault("longhorn.io/test-filesystem", filesystem)
-        if os_name == "windows" and cluster.get("expected_containerd_major"):
-            node_labels.setdefault(
-                "longhorn.io/test-containerd-major", str(cluster["expected_containerd_major"])
-            )
-        if os_name == "windows" and cluster.get("expected_containerd_line"):
-            node_labels.setdefault(
-                "longhorn.io/test-containerd-line", str(cluster["expected_containerd_line"])
-            )
         node = Node(
             name=str(merged["name"]),
             os=os_name,
@@ -134,7 +126,7 @@ def load_topology(path: Path, profile: str) -> Topology:
         if node.role not in {"server", "agent"}:
             raise ValueError(f"node {node.name!r} has unsupported role {node.role!r}")
         if node.os == "windows" and node.role == "server":
-            raise ValueError("RKE2 does not support Windows server nodes")
+            raise ValueError(f"{cluster['kubernetes']} does not support Windows server nodes")
         if node.filesystem not in {"", "ext4", "ntfs", "refs"}:
             raise ValueError(f"node {node.name!r} has unsupported filesystem {node.filesystem!r}")
         names.add(node.name)

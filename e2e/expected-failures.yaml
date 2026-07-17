@@ -8,15 +8,6 @@ expected_failures:
     issue: docs/windows-known-gaps.md#rwx
     failure_message: "(?i)(rwx|capabil|unschedul|share.manager|timeout)"
 
-  - id: windows-strict-local
-    test: "*"
-    tags: [strict-local]
-    exclude_tags: [capability-negative]
-    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas, windows-gate, full]
-    capability: data-locality:strict-local
-    issue: docs/windows-known-gaps.md#strict-local
-    failure_message: "(?i)(strict.local|capabil|unschedul|timeout)"
-
   - id: windows-encryption
     test: "*"
     tags: [encrypted]

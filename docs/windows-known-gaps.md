@@ -9,11 +9,6 @@ implemented, advertised, and removed from `e2e/expected-failures.yaml`.
 Windows V1 does not initially provide the Longhorn share-manager path. RWX
 volumes and replicas require `access-mode:rwx` and cannot be placed on Windows.
 
-## Strict local
-
-The initial Windows frontend uses the network dataconn endpoint required for
-live iSCSI handoff and does not advertise `data-locality:strict-local`.
-
 ## Encryption
 
 The Linux LUKS implementation is not available on Windows.

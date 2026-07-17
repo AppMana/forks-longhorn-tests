@@ -7,6 +7,9 @@ import shlex
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+import yaml
 
 from .provider import CommandError, Provider, run
 
@@ -95,6 +98,7 @@ class LibvirtProvider(Provider):
         self._vagrant("up", "--provider=libvirt", "--parallel")
         self._export_kubeconfig()
         self._wait_for_nodes()
+        self._record_discovered_node_versions()
         self._validate_containerd_generation()
         self._configure_storage_network()
 
@@ -119,19 +123,56 @@ class LibvirtProvider(Provider):
     def _export_kubeconfig(self) -> None:
         server = self.topology.server
         destination = self.run_dir / "kubeconfig.yaml"
+        configured_path = str(self.topology.cluster.get("server_kubeconfig_path", ""))
+        # The VM provider owns transport, not Kubernetes distribution layout.
+        # Prefer an explicitly supplied path, then discover the usual admin
+        # kubeconfig without requiring the caller to know which distribution
+        # produced it.
+        discover = r"""set -eu
+configured=$1
+if [ -n "$configured" ] && [ -f "$configured" ]; then cat "$configured"; exit 0; fi
+if [ -n "${KUBECONFIG:-}" ] && [ -f "${KUBECONFIG:-}" ]; then cat "$KUBECONFIG"; exit 0; fi
+for path in /etc/kubernetes/admin.conf /etc/rancher/rke2/rke2.yaml /etc/rancher/k3s/k3s.yaml; do
+  if [ -f "$path" ]; then cat "$path"; exit 0; fi
+done
+path=$(find /etc -maxdepth 5 -type f \( -name admin.conf -o -name rke2.yaml -o -name k3s.yaml \) -print -quit 2>/dev/null || true)
+if [ -n "$path" ]; then cat "$path"; exit 0; fi
+echo 'no Kubernetes admin kubeconfig found' >&2
+exit 1
+"""
         kubeconfig = run(
             [
                 *self._vagrant_command(), "ssh", server.name, "-c",
-                "sudo cat /etc/rancher/rke2/rke2.yaml",
+                f"sudo sh -c {shlex.quote(discover)} sh {shlex.quote(configured_path)}",
             ],
             cwd=self.vagrant_dir,
             capture=True,
             environment=self._vagrant_environment(),
         )
-        text = kubeconfig.replace(
-            "https://127.0.0.1:6443", f"https://{server.management_ip}:6443"
-        )
-        destination.write_text(text, encoding="utf-8")
+        document = yaml.safe_load(kubeconfig)
+        current_context_name = document.get("current-context")
+        contexts = {
+            item["name"]: item.get("context", {})
+            for item in document.get("contexts", [])
+        }
+        cluster_name = contexts.get(current_context_name, {}).get("cluster")
+        clusters = {
+            item["name"]: item.get("cluster", {})
+            for item in document.get("clusters", [])
+        }
+        cluster = clusters.get(cluster_name)
+        if not cluster or not cluster.get("server"):
+            raise CommandError("discovered kubeconfig has no server for its current context")
+        endpoint = urlsplit(cluster["server"])
+        port = endpoint.port or 6443
+        cluster["server"] = urlunsplit((
+            endpoint.scheme or "https",
+            f"{server.management_ip}:{port}",
+            endpoint.path,
+            endpoint.query,
+            endpoint.fragment,
+        ))
+        destination.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     def _wait_for_nodes(self, timeout_seconds: int = 1800) -> None:
         kubeconfig = self.run_dir / "kubeconfig.yaml"
@@ -188,6 +229,33 @@ class LibvirtProvider(Provider):
                 f"profile requires containerd {expected}.x on Windows; observed {', '.join(mismatches)}. "
                 "Destroy the other runtime profile before provisioning this one."
             )
+
+    def _record_discovered_node_versions(self) -> None:
+        kubeconfig = self.run_dir / "kubeconfig.yaml"
+        document = json.loads(run([
+            "kubectl", "--kubeconfig", str(kubeconfig), "get", "nodes", "-o", "json"
+        ], capture=True))
+        inventory_path = self.run_dir / "node-inventory.json"
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+        for item in document.get("items", []):
+            name = item.get("metadata", {}).get("name")
+            if name not in inventory["nodes"]:
+                continue
+            node_info = item.get("status", {}).get("nodeInfo", {})
+            runtime = node_info.get("containerRuntimeVersion", "")
+            entry = inventory["nodes"][name]
+            entry["container_runtime_version"] = runtime or None
+            entry["kubelet_version"] = node_info.get("kubeletVersion") or None
+            if runtime.startswith("containerd://"):
+                version = runtime.removeprefix("containerd://")
+                major = version.split(".", 1)[0]
+                entry["containerd_major"] = major
+                entry["containerd_line"] = (
+                    ".".join(version.split(".")[:2]) if major == "1" else major
+                )
+        inventory_path.write_text(
+            json.dumps(inventory, indent=2) + "\n", encoding="utf-8"
+        )
 
     def _configure_storage_network(self, timeout_seconds: int = 600) -> None:
         secondary = self.topology.cluster.get("secondary_cni", {})

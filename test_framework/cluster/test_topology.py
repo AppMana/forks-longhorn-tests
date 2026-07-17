@@ -45,17 +45,10 @@ class TopologyTest(unittest.TestCase):
         self.assertEqual(64, len(legacy.cluster["windows_kubelet"]["sha256"]))
         self.assertNotEqual(current.cluster["data_network"]["bridge"], legacy.cluster["data_network"]["bridge"])
         self.assertEqual("longhorn/windows-server-2022", legacy.nodes[1].box)
-        for node in current.nodes:
-            if node.os == "windows":
-                self.assertEqual("2", node.labels["longhorn.io/test-containerd-major"])
-        for node in legacy.nodes:
-            if node.os == "windows":
-                self.assertEqual("1", node.labels["longhorn.io/test-containerd-major"])
-                self.assertEqual("1.6", node.labels["longhorn.io/test-containerd-line"])
-        for node in transitional.nodes:
-            if node.os == "windows":
-                self.assertEqual("1", node.labels["longhorn.io/test-containerd-major"])
-                self.assertEqual("1.7", node.labels["longhorn.io/test-containerd-line"])
+        for topology in (current, transitional, legacy):
+            for node in topology.nodes:
+                self.assertNotIn("longhorn.io/test-containerd-major", node.labels)
+                self.assertNotIn("longhorn.io/test-containerd-line", node.labels)
 
     def test_full_matches_aws_worker_shape(self):
         topology = load_topology(TOPOLOGY, "full")

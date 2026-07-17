@@ -43,15 +43,16 @@ per node. Missing capabilities are hard constraints, not preferences.
 | live engine upgrade | yes | yes |
 | NTFS / ReFS workload | no | yes |
 | RWX replicas | yes | no |
-| strict-local replicas | yes | no |
+| strict-local replicas | yes | yes |
 | encrypted volume | yes | no |
 | backing image | yes | no |
 | filesystem freeze | yes | no |
 | V2/SPDK | Linux only | no |
 
-Consequently an RWX volume or strict-local volume cannot schedule a Windows
-replica. An NTFS/ReFS workload requires a Windows frontend, but its ordinary RWO
-replicas may be mixed across Linux and Windows sparse filesystem disks.
+Consequently an RWX volume cannot schedule a Windows replica. A strict-local
+RWO volume can schedule a Windows controller and replica together. An NTFS/ReFS
+workload requires a Windows frontend, but its ordinary RWO replicas may be
+mixed across Linux and Windows sparse filesystem disks.
 
 ## Deployment and upgrades
 
@@ -77,7 +78,16 @@ requested path are identical remain ordinary host paths. The
 profiles run the same probe. The 1.6 lane asserts that direct projected paths
 are absent; the 1.7 and 2.x lanes assert that both direct and sandbox-relative
 paths are present.
-The 1.6 profile uses RKE2/Kubernetes v1.25.6 and a checksum-pinned kubelet from
+The local provider currently uses RKE2 as one Kubernetes provisioning fixture;
+the Longhorn code and runtime probes have no RKE2 path dependency. The VM
+adapter discovers the server admin kubeconfig and rewrites the endpoint for its
+active context, while containerd version and mount behavior come from
+Kubernetes Node status and live HostProcess probes. Distribution-specific
+install, service, and data paths remain confined to the `mixed-rke2` bootstrap
+scripts and can be replaced by another Kubernetes fixture without changing
+the libvirt lifecycle, topology, network-fault, or Robot contracts.
+
+The 1.6 fixture uses RKE2/Kubernetes v1.25.6 and a checksum-pinned kubelet from
 the public `AppMana/forks-kubernetes` branch. It contains only upstream commit
 `26ef4e42e5c8` backported, avoiding the old kubelet's dependency on the optional
 `Win32_ComputerSystemProduct` WMI instance without changing containerd.
@@ -145,7 +155,8 @@ The required matrix is:
 - Linux engine with mixed Linux/Windows replicas;
 - NTFS and ReFS filesystem workloads;
 - continuous I/O plus checksum validation across engine image replacement;
-- negative capability tests for RWX and strict-local Windows replica placement;
+- strict-local Windows engine and replica placement;
+- negative capability tests for RWX Windows replica placement;
 - strict expected failures for deliberately unsupported features.
 
 An expected failure is matched by topology, tags, capability, and failure text.

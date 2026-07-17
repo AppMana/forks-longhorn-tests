@@ -36,6 +36,18 @@ Test Windows NTFS RWO Volume
     Then Check deployment windows-ntfs data in file data.bin is intact
     And Check deployment windows-ntfs pod is running on node ${windows_node}
 
+Test Windows Strict Local NTFS Volume
+    [Tags]    coretest    rwo    ntfs    strict-local
+    Require Windows Engine Topology
+    ${windows_node}=    Find Topology Node    windows    ntfs
+    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${windows_node}"}
+    Given Create storageclass windows-strict-local with    numberOfReplicas=1    dataEngine=v1    dataLocality=strict-local    fsType=ntfs
+    And Create persistentvolumeclaim windows-strict-local    volume_type=RWO    sc_name=windows-strict-local
+    When Create deployment windows-strict-local with persistentvolumeclaim windows-strict-local    operating_system=windows    node_selector=${selector}
+    Then Volume of deployment windows-strict-local replicas should be on nodes    ${windows_node}
+    And Write 16 MB data to file data.bin in deployment windows-strict-local
+    And Check deployment windows-strict-local data in file data.bin is intact
+
 Test Windows ReFS RWO Volume
     [Tags]    coretest    rwo    refs
     Require Windows Engine Topology
@@ -126,8 +138,8 @@ Test Windows Online Expansion Is Tracked As A Known Gap
 *** Keywords ***
 Set Up Windows Test Environment
     ${topology}=    Get Environment Variable    LONGHORN_TEST_TOPOLOGY    linux
-    IF    $topology not in ('windows', 'windows-mixed-replicas', 'linux-mixed-replicas', 'windows-gate', 'full')
-        Skip    Windows V1 tests require the mixed-RKE2 Windows VM topology
+    IF    not $topology.startswith('windows') and $topology not in ('linux-mixed-replicas', 'full')
+        Skip    Windows V1 tests require a Windows VM topology
     END
     Set up test environment
 

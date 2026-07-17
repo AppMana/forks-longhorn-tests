@@ -4,6 +4,12 @@ This provider replaces the EC2 lifecycle and network with real libvirt VMs. It
 keeps the existing RKE2, Calico, Longhorn deployment, Robot tests, and host
 lifecycle contracts.
 
+RKE2 is a replaceable provisioning fixture here, not part of the libvirt
+provider contract. The provider discovers the admin kubeconfig and its API
+port, reads runtime versions from Kubernetes Node status, and validates mount
+layout in a live HostProcess pod. Only the scripts in this directory know RKE2
+installation, service, or data paths.
+
 Prerequisites are QEMU/KVM, system libvirt, Open vSwitch, `tc`, Vagrant 2.4.9,
 vagrant-libvirt 0.12.2, and the private `longhorn/windows-server-2022` box. The
 source for that box is in `test_framework/packer/windows-server-2022`; neither

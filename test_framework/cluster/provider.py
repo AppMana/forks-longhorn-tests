@@ -73,14 +73,10 @@ class Provider(ABC):
                     "private_ip": node.data_ip,
                     "management_ip": node.management_ip,
                     "filesystem": node.filesystem,
-                    "containerd_major": (
-                        self.topology.cluster.get("expected_containerd_major")
-                        if node.os == "windows" else None
-                    ),
-                    "containerd_line": (
-                        self.topology.cluster.get("expected_containerd_line")
-                        if node.os == "windows" else None
-                    ),
+                    "container_runtime_version": None,
+                    "kubelet_version": None,
+                    "containerd_major": None,
+                    "containerd_line": None,
                 }
                 for node in self.topology.nodes
             },
