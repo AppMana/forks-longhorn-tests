@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$NodeName,
     [Parameter(Mandatory = $true)][string]$NodeIP,
+    [Parameter(Mandatory = $true)][string]$DataMac,
+    [Parameter(Mandatory = $true)][ValidateRange(1, 32)][int]$DataPrefixLength,
     [Parameter(Mandatory = $true)][string]$ServerIP,
     [Parameter(Mandatory = $true)][string]$ClusterToken,
     [Parameter(Mandatory = $true)][string]$Rke2Version,
@@ -15,6 +17,21 @@ $bootstrapRoot = 'C:\LonghornTest'
 $marker = Join-Path $bootstrapRoot 'complete'
 New-Item -ItemType Directory -Path $bootstrapRoot -Force | Out-Null
 if (Test-Path $marker) { exit 0 }
+
+$normalizedDataMac = $DataMac.Replace(':', '').Replace('-', '').ToUpperInvariant()
+$dataAdapter = Get-NetAdapter | Where-Object {
+    $_.MacAddress.Replace('-', '').ToUpperInvariant() -eq $normalizedDataMac
+} | Select-Object -First 1
+if ($null -eq $dataAdapter) { throw "Data adapter $DataMac did not appear" }
+Set-NetIPInterface -InterfaceIndex $dataAdapter.ifIndex -AddressFamily IPv4 -Dhcp Disabled
+$configuredDataAddress = Get-NetIPAddress -InterfaceIndex $dataAdapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object IPAddress -eq $NodeIP
+if ($null -eq $configuredDataAddress) {
+    Get-NetIPAddress -InterfaceIndex $dataAdapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+    New-NetIPAddress -InterfaceIndex $dataAdapter.ifIndex -IPAddress $NodeIP -PrefixLength $DataPrefixLength | Out-Null
+}
+Write-Host "Configured data adapter $($dataAdapter.Name) as $NodeIP/$DataPrefixLength"
 
 function Invoke-WithRetry {
     param([scriptblock]$Operation, [int]$Attempts = 60, [int]$Delay = 10)
