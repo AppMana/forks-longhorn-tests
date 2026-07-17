@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$NodeIP,
     [Parameter(Mandatory = $true)][string]$DataMac,
     [Parameter(Mandatory = $true)][ValidateRange(1, 32)][int]$DataPrefixLength,
+    [Parameter(Mandatory = $true)][string]$DataCIDR,
     [Parameter(Mandatory = $true)][string]$ServerIP,
     [Parameter(Mandatory = $true)][string]$ClusterToken,
     [Parameter(Mandatory = $true)][string]$Rke2Version,
@@ -76,11 +77,12 @@ if (-not $longhornFirewallRule) {
         -Action Allow `
         -Protocol TCP `
         -LocalPort 3260,8500-8501,9500,10000-20000 `
-        -InterfaceAlias $dataAdapter.Name | Out-Null
+        -RemoteAddress $DataCIDR | Out-Null
 } else {
-    # The data adapter changes from the physical NIC to the HNS vEthernet NIC
-    # after the first RKE2 start. Keep the rule attached to the active endpoint.
-    $longhornFirewallRule | Set-NetFirewallRule -InterfaceAlias $dataAdapter.Name | Out-Null
+    # HNS replaces the physical adapter with a vEthernet adapter and Windows can
+    # persist that interface as an opaque LUID, leaving an alias-scoped rule
+    # NotApplicable. The isolated data CIDR is stable across reprovisioning.
+    $longhornFirewallRule | Set-NetFirewallRule -InterfaceAlias Any -RemoteAddress $DataCIDR | Out-Null
 }
 Rename-Computer -NewName $NodeName -Force -ErrorAction SilentlyContinue
 

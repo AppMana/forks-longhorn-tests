@@ -98,6 +98,7 @@ Vagrant.configure("2") do |config|
           "-NodeIP", node.fetch("data_ip"),
           "-DataMac", node.fetch("mac"),
           "-DataPrefixLength", data_prefix_length,
+          "-DataCIDR", cluster.fetch("data_network").fetch("cidr"),
           "-ServerIP", server.fetch("data_ip"),
           "-ClusterToken", cluster_token,
           "-Rke2Version", cluster.fetch("rke2_version"),
