@@ -2,6 +2,16 @@
 
 set -x
 
+if [[ ${LONGHORN_TEST_CLUSTER_RUNTIME:-} == "libvirt" ]]; then
+  LONGHORN_TEST_RUN_DIR=${LONGHORN_TEST_RUN_DIR:-${HOME}/Documents/.longhorn-test/runs/mixed-rke2}
+  python3 test_framework/cluster/clusterctl.py \
+    --provider libvirt \
+    --profile "${LONGHORN_TEST_PROFILE:-windows-gate}" \
+    --run-dir "${LONGHORN_TEST_RUN_DIR}" up
+  cp "${LONGHORN_TEST_RUN_DIR}/kubeconfig.yaml" test_framework/kube_config.yaml
+  exit 0
+fi
+
 if [[ ${TF_VAR_arch} == "amd64" ]]; then
   terraform -chdir=test_framework/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} init
   terraform -chdir=test_framework/terraform/${LONGHORN_TEST_CLOUDPROVIDER}/${DISTRO} apply -auto-approve -no-color

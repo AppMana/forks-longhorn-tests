@@ -1,0 +1,121 @@
+schema_version: 1
+cluster:
+  name: longhorn-windows
+  kubernetes: rke2
+  cni: calico
+  rke2_version: v1.34.2+rke2r1
+  data_network:
+    bridge: lh-e2e-data
+    cidr: 172.28.0.0/24
+  management_network:
+    name: lh-e2e-management
+    cidr: 192.168.121.0/24
+
+defaults:
+  linux:
+    box: bento/ubuntu-24.04
+    cpus: 4
+    memory_mb: 8192
+    root_disk_gb: 64
+  windows:
+    box: longhorn/windows-server-2022
+    cpus: 4
+    memory_mb: 10240
+    root_disk_gb: 80
+  worker:
+    data_disk_gb: 100
+
+nodes:
+      - name: server-0
+        os: linux
+        role: server
+        data_ip: 172.28.0.10
+        management_ip: 192.168.121.10
+        mac: "52:54:00:28:00:10"
+        tap: lhw-server0
+        labels:
+          node-role.longhorn.io/control-plane: "true"
+        taints:
+          - node-role.kubernetes.io/control-plane=true:NoSchedule
+      - name: linux-worker-0
+        os: linux
+        role: agent
+        filesystem: ext4
+        data_ip: 172.28.0.20
+        management_ip: 192.168.121.20
+        mac: "52:54:00:28:00:20"
+        tap: lhw-linux0
+        labels:
+          node-role.longhorn.io/worker: "true"
+      - name: windows-ntfs-0
+        os: windows
+        role: agent
+        filesystem: ntfs
+        data_ip: 172.28.0.30
+        management_ip: 192.168.121.30
+        mac: "52:54:00:28:00:30"
+        tap: lhw-winnt0
+        labels:
+          node-role.longhorn.io/worker: "true"
+      - name: windows-ntfs-1
+        os: windows
+        role: agent
+        filesystem: ntfs
+        data_ip: 172.28.0.31
+        management_ip: 192.168.121.31
+        mac: "52:54:00:28:00:31"
+        tap: lhw-winnt1
+        labels:
+          node-role.longhorn.io/worker: "true"
+      - name: windows-refs-0
+        os: windows
+        role: agent
+        filesystem: refs
+        data_ip: 172.28.0.40
+        management_ip: 192.168.121.40
+        mac: "52:54:00:28:00:40"
+        tap: lhw-winrefs0
+        labels:
+          node-role.longhorn.io/worker: "true"
+      - name: linux-worker-1
+        os: linux
+        role: agent
+        filesystem: ext4
+        data_ip: 172.28.0.21
+        management_ip: 192.168.121.21
+        mac: "52:54:00:28:00:21"
+        tap: lhw-linux1
+        labels:
+          node-role.longhorn.io/worker: "true"
+      - name: linux-worker-2
+        os: linux
+        role: agent
+        filesystem: ext4
+        data_ip: 172.28.0.22
+        management_ip: 192.168.121.22
+        mac: "52:54:00:28:00:22"
+        tap: lhw-linux2
+        labels:
+          node-role.longhorn.io/worker: "true"
+
+profiles:
+  linux-smoke:
+    node_names:
+      - server-0
+      - linux-worker-0
+  windows-gate:
+    node_names:
+      - server-0
+      - linux-worker-0
+      - windows-ntfs-0
+      - windows-ntfs-1
+      - windows-refs-0
+  full:
+    node_names:
+      - server-0
+      - linux-worker-0
+      - windows-ntfs-0
+      - windows-ntfs-1
+      - windows-refs-0
+      - linux-worker-1
+      - linux-worker-2

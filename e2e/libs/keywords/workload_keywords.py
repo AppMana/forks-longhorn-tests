@@ -169,11 +169,11 @@ class workload_keywords:
         logging(f'Checking checksum for file {file_name} in workload {workload_name}')
         check_workload_pod_data_checksum(expected_checksum, workload_name, file_name)
 
-    def keep_writing_workload_pod_data(self, workload_name):
+    def keep_writing_workload_pod_data(self, workload_name, size_in_mb=256):
         pod_name = get_workload_pod_names(workload_name)[0]
 
         logging(f'Keep writing data to pod {pod_name}')
-        keep_writing_pod_data(pod_name)
+        keep_writing_pod_data(pod_name, int(size_in_mb))
 
     def stop_writing_workload_pod_data(self, workload_name):
         pod_name = get_workload_pod_names(workload_name)[0]

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
 cleanup(){
+  if [[ ${LONGHORN_TEST_CLUSTER_RUNTIME:-} == "libvirt" ]]; then
+    python3 "${TF_VAR_tf_workspace}/cluster/clusterctl.py" \
+      --provider libvirt \
+      --profile "${LONGHORN_TEST_PROFILE:-windows-gate}" \
+      --run-dir "${LONGHORN_TEST_RUN_DIR:-${HOME}/Documents/.longhorn-test/runs/mixed-rke2}" down
+    return $?
+  fi
   # terminate any terraform processes
   TERRAFORM_PIDS=( `ps aux | grep -i terraform | grep -v grep | grep -v terraform-setup | awk '{printf("%s ",$1)}'` )
   if [[ -n ${TERRAFORM_PIDS[@]} ]] ; then

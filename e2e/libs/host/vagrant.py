@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import time
+import json
 
 from host.constant import NODE_REBOOT_DOWN_TIME_SECOND
 from host.base import Base
@@ -25,19 +26,23 @@ class Vagrant(Base):
         https://developer.hashicorp.com/vagrant/docs/other/environmental-variables
         """
         cmd_bin = os.getenv('VAGRANT_CMD') or 'vagrant'
+        self._control_host = os.getenv('VAGRANT_CONTROL_HOST')
+        self._control_identity = os.getenv('VAGRANT_CONTROL_IDENTITY')
+        self._vagrant_cwd = os.getenv('VAGRANT_CWD')
         node_mapping = self._get_node_mapping(cmd_bin)
         logging(f'vagrant nodes: {node_mapping}')
 
         super().__init__(mapping=node_mapping)
         self._bin = cmd_bin
-        self._vagrant_cwd = os.getenv('VAGRANT_CWD')
 
         self.snapshot_ids = []
 
-    @classmethod
-    def _get_node_mapping(cls, cmd_bin):
+    def _get_node_mapping(self, cmd_bin):
         encoding = 'ascii'
-        output = subprocess.check_output([cmd_bin, cls._CMD_STATUS, '--machine-readable']).decode(encoding)
+        if self._control_host:
+            output = self._remote_command([self._CMD_STATUS, '--machine-readable'])
+        else:
+            output = subprocess.check_output([cmd_bin, self._CMD_STATUS, '--machine-readable'], cwd=self._vagrant_cwd).decode(encoding)
         nodes = set(row[1] for row in csv.reader(output.splitlines()) if row[1])
         return {node: node for node in nodes}
 
@@ -85,5 +90,21 @@ class Vagrant(Base):
             logging(f"Deleted vm snapshot {snapshot_id}")
 
     def _vagrant_cmd(self, *args, **kwargs):
-        res = subprocess.check_call([self._bin]+list(args), cwd=self._vagrant_cwd, **kwargs)
+        if self._control_host:
+            self._remote_command(list(args))
+            res = 0
+        else:
+            res = subprocess.check_call([self._bin]+list(args), cwd=self._vagrant_cwd, **kwargs)
         logging(f"Executed {[self._bin]+list(args)} with result {res}")
+
+    def _remote_command(self, args):
+        command = ['ssh', '-o', 'BatchMode=yes']
+        if self._control_identity:
+            command.extend(['-i', self._control_identity])
+        command.append(self._control_host)
+        request = json.dumps({'kind': 'vagrant', 'arguments': args}).encode('utf-8')
+        raw = subprocess.check_output(command, input=request).decode('utf-8')
+        response = json.loads(raw)
+        if not response.get('ok'):
+            raise RuntimeError(response.get('error') or response.get('output') or 'remote Vagrant command failed')
+        return response.get('output', '')

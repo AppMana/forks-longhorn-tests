@@ -20,13 +20,14 @@ Test Teardown    Cleanup test resources
 Test Windows NTFS RWO Volume
     [Tags]    coretest    rwo    ntfs
     Require Windows Engine Topology
-    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${NODE_0}"}
+    ${windows_node}=    Find Topology Node    windows    ntfs
+    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${windows_node}"}
     Given Create storageclass windows-ntfs with    numberOfReplicas=2    dataEngine=v1    fsType=ntfs
     And Create persistentvolumeclaim windows-ntfs    volume_type=RWO    sc_name=windows-ntfs
     When Create deployment windows-ntfs with persistentvolumeclaim windows-ntfs    operating_system=windows    node_selector=${selector}
     And Write 16 MB data to file data.bin in deployment windows-ntfs
     Then Check deployment windows-ntfs data in file data.bin is intact
-    And Check deployment windows-ntfs pod is running on node ${NODE_0}
+    And Check deployment windows-ntfs pod is running on node ${windows_node}
 
 Test Windows ReFS RWO Volume
     [Tags]    coretest    rwo    refs
@@ -43,7 +44,8 @@ Test Windows ReFS RWO Volume
 Test Windows Engine Live Upgrade Preserves Continuous IO
     [Tags]    coretest    rwo    ntfs    engine-upgrade    upgrade    continuous-io
     Require Windows Engine Topology
-    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${NODE_0}"}
+    ${windows_node}=    Find Topology Node    windows    ntfs
+    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${windows_node}"}
     Given Create compatible Windows engine image
     And Create storageclass windows-upgrade with    numberOfReplicas=2    dataEngine=v1    fsType=ntfs
     And Create persistentvolumeclaim windows-upgrade    volume_type=RWO    sc_name=windows-upgrade
@@ -51,8 +53,15 @@ Test Windows Engine Live Upgrade Preserves Continuous IO
     And Get deployment windows-upgrade pod name
     And Write 16 MB data to file checkpoint.bin in deployment windows-upgrade
     And Keep writing data to pod of deployment windows-upgrade    4
+    ${deployment_name}=    Generate Name With Suffix    deployment    windows-upgrade
+    ${volume_name}=    Get Workload Volume Name    ${deployment_name}
+    ${iscsi_state}=    Capture Windows Iscsi State For Workload    ${deployment_name}
+    And Start Windows Engine Overlap Probe For Workload    ${deployment_name}
     TRY
-        When Upgrade volume deployment windows-upgrade engine to ${compatible_engine_image_name}
+        When Upgrade Engine Image    ${volume_name}    ${compatible_engine_image_name}
+        And Wait For Engine Image Upgrade Completed    ${volume_name}    ${compatible_engine_image_name}
+        Then Assert Windows Engine Overlap Probe Succeeded
+        And Assert Windows Iscsi State For Workload Is Unchanged    ${deployment_name}    ${iscsi_state}
         Then Check deployment windows-upgrade data in file checkpoint.bin is intact
         And Check deployment windows-upgrade pod not restarted
     FINALLY
@@ -62,33 +71,38 @@ Test Windows Engine Live Upgrade Preserves Continuous IO
 Test Windows Engine With Windows And Linux Replicas
     [Tags]    coretest    rwo    ntfs    mixed-replicas
     Require Mixed Replica Topology
-    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${NODE_0}"}
-    Given Set node 0 tags    windows-mixed-test
-    And Set node 2 tags    windows-mixed-test
+    ${windows_node}=    Find Topology Node    windows    ntfs
+    ${linux_node}=    Find Topology Node    linux    ext4
+    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${windows_node}"}
+    Given Set Node Tags    ${windows_node}    windows-mixed-test
+    And Set Node Tags    ${linux_node}    windows-mixed-test
     And Create storageclass windows-mixed with    numberOfReplicas=2    dataEngine=v1    fsType=ntfs    nodeSelector=windows-mixed-test
     And Create persistentvolumeclaim windows-mixed    volume_type=RWO    sc_name=windows-mixed
     When Create deployment windows-mixed with persistentvolumeclaim windows-mixed    operating_system=windows    node_selector=${selector}
-    Then Volume of deployment windows-mixed replicas should be on nodes    ${NODE_0}    ${NODE_2}
+    Then Volume of deployment windows-mixed replicas should be on nodes    ${windows_node}    ${linux_node}
     And Write 16 MB data to file data.bin in deployment windows-mixed
     And Check deployment windows-mixed data in file data.bin is intact
 
 Test Linux Engine With Linux And Windows Replicas
     [Tags]    coretest    rwo    mixed-replicas
     Require Linux Mixed Replica Topology
-    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${NODE_0}"}
-    Given Set node 0 tags    linux-windows-mixed-test
-    And Set node 2 tags    linux-windows-mixed-test
+    ${linux_node}=    Find Topology Node    linux    ext4
+    ${windows_node}=    Find Topology Node    windows    ntfs
+    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${linux_node}"}
+    Given Set Node Tags    ${linux_node}    linux-windows-mixed-test
+    And Set Node Tags    ${windows_node}    linux-windows-mixed-test
     And Create storageclass linux-windows-mixed with    numberOfReplicas=2    dataEngine=v1    fsType=ext4    nodeSelector=linux-windows-mixed-test
     And Create persistentvolumeclaim linux-windows-mixed    volume_type=RWO    sc_name=linux-windows-mixed
     When Create deployment linux-windows-mixed with persistentvolumeclaim linux-windows-mixed    operating_system=linux    node_selector=${selector}
-    Then Volume of deployment linux-windows-mixed replicas should be on nodes    ${NODE_0}    ${NODE_2}
+    Then Volume of deployment linux-windows-mixed replicas should be on nodes    ${linux_node}    ${windows_node}
     And Write 16 MB data to file data.bin in deployment linux-windows-mixed
     And Check deployment linux-windows-mixed data in file data.bin is intact
 
 Test Windows Online Expansion Is Tracked As A Known Gap
     [Tags]    expansion
     Require Windows Engine Topology
-    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${NODE_0}"}
+    ${windows_node}=    Find Topology Node    windows    ntfs
+    ${selector}=    Set Variable    {"kubernetes.io/hostname":"${windows_node}"}
     Given Create storageclass windows-expand with    numberOfReplicas=2    dataEngine=v1    fsType=ntfs
     And Create persistentvolumeclaim windows-expand    volume_type=RWO    sc_name=windows-expand
     And Create deployment windows-expand with persistentvolumeclaim windows-expand    operating_system=windows    node_selector=${selector}
@@ -98,25 +112,25 @@ Test Windows Online Expansion Is Tracked As A Known Gap
 *** Keywords ***
 Set Up Windows Test Environment
     ${topology}=    Get Environment Variable    LONGHORN_TEST_TOPOLOGY    linux
-    IF    $topology not in ('windows', 'windows-mixed-replicas', 'linux-mixed-replicas')
+    IF    $topology not in ('windows', 'windows-mixed-replicas', 'linux-mixed-replicas', 'windows-gate', 'full')
         Skip    Windows V1 tests require the mixed-RKE2 Windows VM topology
     END
     Set up test environment
 
 Require Mixed Replica Topology
     ${topology}=    Get Environment Variable    LONGHORN_TEST_TOPOLOGY    linux
-    IF    'mixed-replicas' not in $topology
+    IF    'mixed-replicas' not in $topology and $topology not in ('windows-gate', 'full')
         Skip    This test requires the windows-mixed-replicas topology
     END
 
 Require Windows Engine Topology
     ${topology}=    Get Environment Variable    LONGHORN_TEST_TOPOLOGY    linux
-    IF    not $topology.startswith('windows')
+    IF    not $topology.startswith('windows') and $topology != 'full'
         Skip    This test requires a Windows engine topology
     END
 
 Require Linux Mixed Replica Topology
     ${topology}=    Get Environment Variable    LONGHORN_TEST_TOPOLOGY    linux
-    IF    $topology != 'linux-mixed-replicas'
+    IF    $topology not in ('linux-mixed-replicas', 'windows-gate', 'full')
         Skip    This test requires the linux-mixed-replicas topology
     END

@@ -11,7 +11,12 @@ class Base(ABC):
         if mapping:
             self.mapping = mapping
         else:
-            with open('/tmp/instance_mapping', 'r') as f:
+            run_dir = os.getenv('LONGHORN_TEST_RUN_DIR')
+            mapping_path = os.getenv('LONGHORN_TEST_INSTANCE_MAPPING')
+            if not mapping_path and run_dir:
+                mapping_path = os.path.join(run_dir, 'instance-mapping.json')
+            mapping_path = mapping_path or '/tmp/instance_mapping'
+            with open(mapping_path, 'r') as f:
                 self.mapping = yaml.safe_load(f)
         self.node = Node()
 

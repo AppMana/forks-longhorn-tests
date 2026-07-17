@@ -5,7 +5,18 @@ NFS_BACKUP_STORE='nfs://longhorn-test-nfs-svc.default:/opt/backupstore'
 CIFS_BACKUP_STORE='cifs://longhorn-test-cifs-svc.default/backupstore$cifs-secret'
 AZURITE_BACKUP_STORE='azblob://longhorn-test-azurite@core.windows.net/$azblob-secret'
 
+initialize_longhorn_test_runtime(){
+  LONGHORN_TEST_STATE_DIR=${LONGHORN_TEST_RUN_DIR:-/tmp}
+  INSTANCE_MAPPING_PATH=${LONGHORN_TEST_INSTANCE_MAPPING:-${LONGHORN_TEST_STATE_DIR}/instance-mapping.json}
+  NODE_INVENTORY_PATH=${LONGHORN_NODE_INVENTORY_HOST:-${LONGHORN_TEST_STATE_DIR}/node-inventory.json}
+  if [[ ! -f "${INSTANCE_MAPPING_PATH}" && -f /tmp/instance_mapping ]]; then INSTANCE_MAPPING_PATH=/tmp/instance_mapping; fi
+  if [[ ! -f "${NODE_INVENTORY_PATH}" && -f /tmp/node_inventory.json ]]; then NODE_INVENTORY_PATH=/tmp/node_inventory.json; fi
+  LONGHORN_TEST_HOST_PROVIDER=${LONGHORN_TEST_HOST_PROVIDER:-${LONGHORN_TEST_CLOUDPROVIDER}}
+}
+
 run_longhorn_test(){
+
+  initialize_longhorn_test_runtime
 
   LONGHORN_TESTS_CUSTOM_IMAGE=${LONGHORN_TESTS_CUSTOM_IMAGE:-"longhornio/longhorn-e2e-test:master-head"}
   LONGHORN_INSTALL_METHOD=${LONGHORN_INSTALL_METHOD:-"manifest"}
@@ -46,7 +57,7 @@ run_longhorn_test(){
     yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env[5].value="true"' ${LONGHORN_TESTS_MANIFEST_FILE_PATH}
   fi
 
-  yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env[6].value="'${LONGHORN_TEST_CLOUDPROVIDER}'"' ${LONGHORN_TESTS_MANIFEST_FILE_PATH}
+  yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env[6].value="'${LONGHORN_TEST_HOST_PROVIDER}'"' ${LONGHORN_TESTS_MANIFEST_FILE_PATH}
   yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env[7].value="'${TF_VAR_arch}'"' ${LONGHORN_TESTS_MANIFEST_FILE_PATH}
 
   # environment variables for upgrade test
@@ -69,13 +80,19 @@ run_longhorn_test(){
   if [[ -n "${LONGHORN_TEST_TOPOLOGY:-}" ]]; then
     yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env += {"name": "LONGHORN_TEST_TOPOLOGY", "value": "'${LONGHORN_TEST_TOPOLOGY}'"}' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
   fi
+  if [[ -n "${VAGRANT_CONTROL_HOST:-}" ]]; then
+    yq e -i 'select(.spec.containers[0] != null).spec.containers[0].env += [
+      {"name": "VAGRANT_CONTROL_HOST", "value": "'${VAGRANT_CONTROL_HOST}'"},
+      {"name": "VAGRANT_CONTROL_IDENTITY", "value": "/root/.ssh/id_rsa"}
+    ]' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
+  fi
 
   # for appco test
   yq e -i 'select(.spec.containers[0].env != null).spec.containers[0].env += {"name": "APPCO_TEST", "value": "'${APPCO_TEST}'"}' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
 
   # share instance mapping information between jenkins job agent and test pod for later use, e.g. power on/off nodes.
-  if [[ -f /tmp/instance_mapping ]]; then
-    kubectl create configmap instance-mapping --from-file=/tmp/instance_mapping
+  if [[ -f "${INSTANCE_MAPPING_PATH}" ]]; then
+    kubectl create configmap instance-mapping --from-file=instance_mapping="${INSTANCE_MAPPING_PATH}"
     yq -i '
 select(.kind == "Pod").spec.volumes += [{
   "name": "instance-mapping",
@@ -93,7 +110,7 @@ select(.kind == "Pod").spec.containers[0].volumeMounts += [{
 }]
 ' "${LONGHORN_TESTS_MANIFEST_FILE_PATH}"
   else
-    echo "/tmp/instance_mapping not found, skipping instance mapping configmap setup"
+    echo "${INSTANCE_MAPPING_PATH} not found, skipping instance mapping configmap setup"
   fi
 
   # share public IP mapping information between jenkins job agent and test pod for later use, e.g. ssh to nodes.
@@ -120,8 +137,8 @@ select(.kind == "Pod").spec.containers[0].volumeMounts += [{
   fi
 
   # Keep the VM declaration and the Kubernetes topology selector on the same inventory.
-  if [[ -f /tmp/node_inventory.json ]]; then
-    kubectl create configmap node-inventory --from-file=/tmp/node_inventory.json
+  if [[ -f "${NODE_INVENTORY_PATH}" ]]; then
+    kubectl create configmap node-inventory --from-file=node_inventory.json="${NODE_INVENTORY_PATH}"
     yq -i '
 select(.kind == "Pod").spec.volumes += [{
   "name": "node-inventory",
@@ -247,6 +264,8 @@ select(.kind == "Pod").spec.containers[0].volumeMounts += [{
 
 run_longhorn_test_out_of_cluster(){
 
+  initialize_longhorn_test_runtime
+
   if [[ ${BACKUP_STORE_TYPE} == "s3" ]]; then
     LONGHORN_BACKUPSTORES=${S3_BACKUP_STORE}
   elif [[ $BACKUP_STORE_TYPE = "nfs" ]]; then
@@ -266,7 +285,7 @@ run_longhorn_test_out_of_cluster(){
 
   eval "ROBOT_COMMAND_ARGS=($CUSTOM_TEST_OPTIONS)"
 
-  cat /tmp/instance_mapping
+  cat "${INSTANCE_MAPPING_PATH}"
   cp "${KUBECONFIG}" /tmp/kubeconfig
   cp "$HOME/.ssh/id_rsa" /tmp/id_rsa
   CONTAINER_NAME="e2e-container-${IMAGE_NAME}"
@@ -280,7 +299,7 @@ run_longhorn_test_out_of_cluster(){
              -e AWS_DEFAULT_REGION="${TF_VAR_aws_region}" \
              -e LONGHORN_CLIENT_URL="${LONGHORN_CLIENT_URL}" \
              -e KUBECONFIG="/tmp/kubeconfig" \
-             -e HOST_PROVIDER="${LONGHORN_TEST_CLOUDPROVIDER}" \
+             -e HOST_PROVIDER="${LONGHORN_TEST_HOST_PROVIDER}" \
              -e ARCH="${TF_VAR_arch}" \
              -e LAB_URL="${TF_VAR_lab_url}" \
              -e LAB_ACCESS_KEY="${TF_VAR_lab_access_key}" \

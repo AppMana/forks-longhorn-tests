@@ -30,3 +30,22 @@ profiles:
       - {os: windows, filesystem: ntfs}
     engine_os: linux
     replica_os: [linux, windows]
+
+  # Local libvirt profiles contain enough workers to exercise both engine
+  # placements in one cluster. Tests that require a particular role select
+  # nodes by OS/filesystem instead of relying on this compatibility ordering.
+  windows-gate:
+    nodes:
+      - {os: windows, filesystem: ntfs}
+      - {os: windows, filesystem: ntfs}
+      - {os: linux, filesystem: ext4}
+    engine_os: windows
+    replica_os: [windows, linux]
+
+  full:
+    nodes:
+      - {os: windows, filesystem: ntfs}
+      - {os: windows, filesystem: refs}
+      - {os: linux, filesystem: ext4}
+    engine_os: windows
+    replica_os: [windows, linux]

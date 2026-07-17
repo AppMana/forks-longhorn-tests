@@ -1,0 +1,87 @@
+# frozen_string_literal: true
+
+require "json"
+
+topology_path = ENV.fetch("LONGHORN_TEST_TOPOLOGY")
+run_dir = ENV.fetch("LONGHORN_TEST_RUN_DIR")
+topology = JSON.parse(File.read(topology_path))
+cluster = topology.fetch("cluster")
+token_path = File.join(run_dir, "cluster-token")
+cluster_token = File.read(token_path).strip
+server = topology.fetch("nodes").find { |node| node.fetch("role") == "server" }
+raise "topology must have one server" unless server
+
+Vagrant.configure("2") do |config|
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.boot_timeout = 1800
+  config.ssh.keep_alive = true
+
+  topology.fetch("nodes").each do |node|
+    config.vm.define node.fetch("name") do |machine|
+      machine.vm.hostname = node.fetch("name")
+      machine.vm.box = node.fetch("box")
+      machine.vm.communicator = node.fetch("os") == "windows" ? "winrm" : "ssh"
+
+      machine.vm.network :private_network,
+        ip: node.fetch("management_ip")
+      machine.vm.network :public_network,
+        ip: node.fetch("data_ip"),
+        dev: cluster.fetch("data_network").fetch("bridge"),
+        mode: "bridge",
+        type: "bridge",
+        ovs: true,
+        mac: node.fetch("mac"),
+        libvirt__iface_name: node.fetch("tap")
+
+      if node.fetch("os") == "windows"
+        machine.winrm.retry_limit = 60
+        machine.winrm.retry_delay = 10
+      end
+
+      machine.vm.provider :libvirt do |libvirt|
+        libvirt.qemu_use_session = false
+        libvirt.cpus = node.fetch("cpus")
+        libvirt.memory = node.fetch("memory_mb")
+        libvirt.cpu_mode = "host-passthrough"
+        libvirt.machine_type = "q35"
+        libvirt.nic_model_type = "virtio"
+        libvirt.disk_bus = "scsi"
+        libvirt.driver = "kvm"
+        libvirt.video_type = node.fetch("os") == "windows" ? "qxl" : "virtio"
+        libvirt.input type: "tablet", bus: "usb" if node.fetch("os") == "windows"
+        if node.fetch("data_disk_gb", 0).positive?
+          libvirt.storage :file,
+            size: "#{node.fetch('data_disk_gb')}G",
+            type: "qcow2",
+            bus: "scsi",
+            cache: "none",
+            io: "native",
+            discard: "unmap",
+            detect_zeroes: "unmap"
+        end
+      end
+
+      labels = node.fetch("labels", {}).map { |key, value| "#{key}=#{value}" }.join(",")
+      taints = node.fetch("taints", []).join(",")
+      if node.fetch("os") == "windows"
+        machine.vm.provision "shell",
+          path: "scripts/windows-agent.ps1",
+          args: [
+            node.fetch("name"), node.fetch("data_ip"), server.fetch("data_ip"),
+            cluster_token, cluster.fetch("rke2_version"), node.fetch("filesystem"),
+            labels, taints
+          ],
+          privileged: true,
+          reboot: true
+      else
+        machine.vm.provision "shell",
+          path: "scripts/linux-node.sh",
+          args: [
+            node.fetch("name"), node.fetch("role"), node.fetch("data_ip"),
+            node.fetch("management_ip"), server.fetch("data_ip"), cluster_token, cluster.fetch("rke2_version"),
+            cluster.fetch("cni"), node.fetch("filesystem", ""), labels, taints
+          ]
+      end
+    end
+  end
+end

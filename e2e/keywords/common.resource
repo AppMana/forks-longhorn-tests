@@ -21,6 +21,7 @@ Library             ../libs/keywords/orphan_keywords.py
 Library             ../libs/keywords/backing_image_keywords.py
 Library             ../libs/keywords/backup_backing_image_keywords.py
 Library             ../libs/keywords/engine_image_keywords.py
+Library             ../libs/keywords/windows_keywords.py
 Library             ../libs/keywords/setting_keywords.py
 Library             ../libs/keywords/backupstore_keywords.py
 Library             ../libs/keywords/backup_keywords.py

@@ -26,3 +26,6 @@ pyvenv.cfg
 *.html
 *.xml
 /tmp/test-report/
+
+# Local Vagrant machine state and generated communicator credentials.
+.vagrant/

@@ -53,6 +53,9 @@ class NodeExec:
         else:
             self.pod = self.launch_pod()
 
+        return self.issue_cmd_in_running_pod(cmd)
+
+    def issue_cmd_in_running_pod(self, cmd):
         logging(f"Issuing command on {self.node_name}: {cmd}")
 
         if isinstance(cmd, list):

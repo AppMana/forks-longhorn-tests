@@ -3,7 +3,7 @@ expected_failures:
     test: "*"
     tags: [rwx]
     exclude_tags: [capability-negative]
-    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas]
+    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas, windows-gate, full]
     capability: access-mode:rwx
     issue: docs/windows-known-gaps.md#rwx
     failure_message: "(?i)(rwx|capabil|unschedul|share.manager|timeout)"
@@ -12,7 +12,7 @@ expected_failures:
     test: "*"
     tags: [strict-local]
     exclude_tags: [capability-negative]
-    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas]
+    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas, windows-gate, full]
     capability: data-locality:strict-local
     issue: docs/windows-known-gaps.md#strict-local
     failure_message: "(?i)(strict.local|capabil|unschedul|timeout)"
@@ -21,7 +21,7 @@ expected_failures:
     test: "*"
     tags: [encrypted]
     exclude_tags: [capability-negative]
-    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas]
+    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas, windows-gate, full]
     capability: volume:encryption
     issue: docs/windows-known-gaps.md#encryption
     failure_message: "(?i)(encrypt|crypt|capabil|unschedul|timeout)"
@@ -30,7 +30,7 @@ expected_failures:
     test: "*"
     tags: [filesystem-freeze]
     exclude_tags: [capability-negative]
-    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas]
+    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas, windows-gate, full]
     capability: snapshot:filesystem-freeze
     issue: docs/windows-known-gaps.md#filesystem-freeze
     failure_message: "(?i)(freeze|capabil|unsupported|timeout)"
@@ -39,7 +39,7 @@ expected_failures:
     test: "*"
     tags: [v2]
     exclude_tags: [capability-negative]
-    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas]
+    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas, windows-gate, full]
     capability: engine:v2
     issue: docs/windows-known-gaps.md#v2
     failure_message: "(?i)(v2|spdk|capabil|unschedul|timeout)"
@@ -48,7 +48,7 @@ expected_failures:
     test: "*"
     tags: [block-volume]
     exclude_tags: [capability-negative]
-    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas]
+    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas, windows-gate, full]
     capability: frontend:raw-block
     issue: docs/windows-known-gaps.md#raw-block
     failure_message: "(?i)(block|capabil|unsupported|timeout)"
@@ -57,7 +57,7 @@ expected_failures:
     test: "*"
     tags: [expansion]
     exclude_tags: [capability-negative]
-    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas]
+    topologies: [windows, windows-mixed-replicas, linux-mixed-replicas, windows-gate, full]
     capability: volume:online-expansion
     issue: docs/windows-known-gaps.md#online-expansion
     failure_message: "(?i)(expand|resize|capabil|unsupported|timeout)"

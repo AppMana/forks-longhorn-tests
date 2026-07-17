@@ -102,6 +102,7 @@ Check deployment ${deployment_id} pod not restarted
     ${deployment_name} =   generate_name_with_suffix    deployment    ${deployment_id}
     ${current_pod_name} =    get_workload_pod_name    ${deployment_name}
     Should Be Equal    ${pod_name}    ${current_pod_name}
+    check_workload_pod_did_not_restart    ${deployment_name}
 
 Scale deployment ${deployment_id} to ${replicaset_size}
     ${deployment_name} =    generate_name_with_suffix    deployment    ${deployment_id}
