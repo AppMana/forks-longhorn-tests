@@ -114,7 +114,7 @@ if (-not (Test-Path $rke2Path)) {
 
 Write-Host "Waiting for the RKE2 supervisor at $ServerIP"
 Invoke-WithRetry {
-    & curl.exe --fail --silent --show-error --insecure "https://$ServerIP`:9345/ping" | Out-Null
+    & curl.exe --fail --silent --insecure "https://$ServerIP`:9345/ping" 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'RKE2 supervisor is not ready' }
 }
 if (-not (Get-Service -Name rke2 -ErrorAction SilentlyContinue)) {
@@ -125,3 +125,4 @@ Set-Service -Name rke2 -StartupType Automatic
 Start-Service -Name rke2
 New-Item -ItemType File -Path $marker -Force | Out-Null
 Write-Host "Windows RKE2 agent provisioning complete"
+exit 0
