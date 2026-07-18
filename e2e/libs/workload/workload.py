@@ -304,7 +304,7 @@ def stop_writing_pod_data(pod_name, path=None):
                     "if(!(Test-Path $pidFile)){ throw 'continuous writer PID is missing' }; "
                     "$writerPid=[int](Get-Content $pidFile); New-Item -ItemType File -Force $stop | Out-Null; "
                     "$process=Get-Process -Id $writerPid -ErrorAction SilentlyContinue; "
-                    "if($process){ $process.WaitForExit(60000) }; $process=Get-Process -Id $writerPid -ErrorAction SilentlyContinue; "
+                    "if($process){ [void]$process.WaitForExit(60000) }; $process=Get-Process -Id $writerPid -ErrorAction SilentlyContinue; "
                     "if($process){ Stop-Process -Id $writerPid -Force; throw 'continuous writer did not stop cleanly' }; "
                     "if(Test-Path $failure){ throw (Get-Content $failure -Raw) }; "
                     "if(!(Test-Path $journal)){ throw 'continuous writer produced no durable samples' }; "
