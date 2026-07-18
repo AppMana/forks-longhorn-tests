@@ -67,18 +67,16 @@ Test Windows Engine Live Upgrade Preserves Continuous IO
     ${selector}=    Set Variable    {"kubernetes.io/hostname":"${windows_node}"}
     ${target_engine_image}=    Get default engine image name
     Given Create compatible Windows engine image
-    And Setting default-engine-image is set to ${compatible_engine_image_name}
-    TRY
-        And Create storageclass windows-upgrade with    numberOfReplicas=2    dataEngine=v1    fsType=ntfs
-        And Create persistentvolumeclaim windows-upgrade    volume_type=RWO    sc_name=windows-upgrade
-        And Create deployment windows-upgrade with persistentvolumeclaim windows-upgrade    operating_system=windows    node_selector=${selector}
-    FINALLY
-        And Setting default-engine-image is set to ${target_engine_image}
-    END
+    And Create storageclass windows-upgrade with    numberOfReplicas=2    dataEngine=v1    fsType=ntfs
+    And Create persistentvolumeclaim windows-upgrade    volume_type=RWO    sc_name=windows-upgrade
+    ${claim_name}=    Generate Name With Suffix    claim    windows-upgrade
+    ${volume_name}=    Get Volume Name From Persistentvolumeclaim    ${claim_name}
+    And Upgrade Engine Image    ${volume_name}    ${compatible_engine_image_name}
+    And Wait For Engine Image Upgrade Completed    ${volume_name}    ${compatible_engine_image_name}
+    And Create deployment windows-upgrade with persistentvolumeclaim windows-upgrade    operating_system=windows    node_selector=${selector}
     And Get deployment windows-upgrade pod name
     And Write 16 MB data to file checkpoint.bin in deployment windows-upgrade
     ${deployment_name}=    Generate Name With Suffix    deployment    windows-upgrade
-    ${volume_name}=    Get Workload Volume Name    ${deployment_name}
     And Wait For Engine Image Upgrade Completed    ${volume_name}    ${compatible_engine_image_name}
     And Keep writing data to pod of deployment windows-upgrade    4
     ${iscsi_state}=    Capture Windows Iscsi State For Workload    ${deployment_name}
