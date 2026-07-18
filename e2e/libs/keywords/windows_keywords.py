@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import threading
@@ -122,7 +123,17 @@ class windows_keywords:
             "[ordered]@{Sessions=$sessions;Disks=$disks} | ConvertTo-Json -Compress -Depth 5"
         )
         output = NodeExec(node_name).issue_cmd(command).strip()
-        state = json.loads(output)
+        try:
+            state = json.loads(output)
+        except json.JSONDecodeError:
+            # The Kubernetes Python exec client can deserialize a JSON object
+            # and then return its Python representation on Windows streams.
+            # Keep the assertion independent of that transport detail while
+            # still rejecting anything except a literal mapping.
+            state = ast.literal_eval(output)
+        assert isinstance(state, dict), (
+            f"Unexpected Windows iSCSI state from {node_name}: {state!r}"
+        )
         assert state.get("Sessions"), f"No Windows iSCSI session was found on {node_name}: {state}"
         assert state.get("Disks"), f"No Windows iSCSI disk was found on {node_name}: {state}"
         return json.dumps(state, sort_keys=True, separators=(",", ":"))
