@@ -53,19 +53,29 @@ class EngineImage():
             f"default engine image {default_image}"
         )
         image = self.create_engine_image(image_name)
+        ready_since = None
         for attempt in range(self.retry_count):
             image = get_longhorn_client().by_id_engine_image(image.name)
             deployments = image.nodeDeploymentMap or {}
             if deployments and all(deployments.values()):
-                break
-            logging(
-                f"Waiting for Windows-capable engine image {image_name} on all "
-                f"test nodes ... ({attempt}): {deployments}"
-            )
+                if ready_since is None:
+                    ready_since = time.monotonic()
+                # Cover more than a complete Windows liveness-probe failure
+                # window. A staging pod that briefly reports Ready and then
+                # restarts must never be used to begin an upgrade test.
+                if time.monotonic() - ready_since >= 20:
+                    break
+            else:
+                ready_since = None
+                logging(
+                    f"Waiting for Windows-capable engine image {image_name} on all "
+                    f"test nodes ... ({attempt}): {deployments}"
+                )
             time.sleep(self.retry_interval)
-        assert deployments and all(deployments.values()), (
+        stable = ready_since is not None and time.monotonic() - ready_since >= 20
+        assert deployments and all(deployments.values()) and stable, (
             f"Engine image {image_name} did not deploy its platform variant on "
-            f"every test node: {deployments}"
+            f"every test node stably: {deployments}"
         )
         return image.image
 
